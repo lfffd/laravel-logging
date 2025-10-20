@@ -41,7 +41,13 @@ class StructuredLogger
         $this->correlation->setMethod($method);
         $this->correlation->setPath($path);
         $this->correlation->setClientIp($ip);
-        $this->sequenceCounter++;  // Increment once per request, not per log entry
+        
+        // Load sequence counter from session and increment
+        $sessionKey = 'superlog_req_seq';
+        $this->sequenceCounter = (int) session($sessionKey, 0);
+        $this->sequenceCounter++;
+        session([$sessionKey => $this->sequenceCounter]);
+        
         $this->sections = [];
     }
 
