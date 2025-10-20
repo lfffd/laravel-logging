@@ -62,16 +62,8 @@ class SuperlogHandler extends AbstractProcessingHandler
             
             // Write to stream handler if available
             if ($this->streamHandler) {
-                $this->streamHandler->handle(
-                    new LogRecord(
-                        $record->datetime,
-                        $record->channel,
-                        $record->level,
-                        $formatted,
-                        $record->extra,
-                        $record->context
-                    )
-                );
+                // Write directly to the stream to avoid duplicate processing through the handler pipeline
+                fwrite($this->streamHandler->getStream(), $formatted . "\n");
             } else {
                 // Fallback to echo if no stream handler
                 echo $formatted . PHP_EOL;
