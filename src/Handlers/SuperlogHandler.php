@@ -33,29 +33,28 @@ class SuperlogHandler extends AbstractProcessingHandler
      */
     protected function write(LogRecord $record): void
     {
-        $context = $record->extra ?? [];
+        $context = $record->context ?? [];
         
-        // Merge context and context array
-        if (isset($record->context)) {
-            $context = array_merge($context, $record->context);
+        // Check if this is already a formatted Superlog entry (passed from StructuredLogger)
+        if (isset($context['_superlog_entry'])) {
+            $logEntry = $context['_superlog_entry'];
+        } else {
+            // Fallback: construct from context (for non-Superlog logs)
+            $section = $context['section'] ?? 'GENERAL';
+            $metrics = $context['metrics'] ?? [];
+            
+            // Remove Superlog-specific keys from context
+            $cleanContext = $context;
+            unset($cleanContext['section'], $cleanContext['metrics'], $cleanContext['_superlog_entry']);
+            
+            $logEntry = $this->logger->log(
+                $record->level->getName(),
+                $section,
+                $record->message,
+                $cleanContext,
+                $metrics
+            );
         }
-
-        // Extract section from context if available
-        $section = $context['section'] ?? 'GENERAL';
-        unset($context['section']);
-
-        // Extract metrics if available
-        $metrics = $context['metrics'] ?? [];
-        unset($context['metrics']);
-
-        // Log using structured logger
-        $logEntry = $this->logger->log(
-            $record->level->getName(),
-            $section,
-            $record->message,
-            $context,
-            $metrics
-        );
 
         // Format and output
         if (!empty($logEntry)) {

@@ -4,6 +4,7 @@ namespace Superlog\Logger;
 
 use Ramsey\Uuid\Uuid;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Superlog\Utils\CorrelationContext;
 use Superlog\Processors\RedactionProcessor;
 use Superlog\Processors\PayloadProcessor;
@@ -16,13 +17,15 @@ class StructuredLogger
     protected PayloadProcessor $payloadProcessor;
     protected array $sections = [];
     protected int $sequenceCounter = 0;
+    protected ?string $logChannel = null;
 
-    public function __construct(array $config)
+    public function __construct(array $config, ?string $logChannel = null)
     {
         $this->config = $config;
         $this->correlation = new CorrelationContext();
         $this->redactor = new RedactionProcessor($config['redaction']);
         $this->payloadProcessor = new PayloadProcessor($config['payload_handling']);
+        $this->logChannel = $logChannel ?? 'superlog';
     }
 
     /**
@@ -87,7 +90,36 @@ class StructuredLogger
         // Process payloads
         $logEntry = $this->payloadProcessor->process($logEntry);
 
+        // Write to Laravel's logging system
+        $this->writeToLog($level, $logEntry);
+
         return $logEntry;
+    }
+
+    /**
+     * Write the log entry to Laravel's logging system
+     */
+    protected function writeToLog(string $level, array $logEntry): void
+    {
+        try {
+            // Pass the entire log entry as context so the handler can access it
+            Log::channel($this->logChannel)->log(
+                strtolower($logEntry['level']),
+                $logEntry['message'],
+                [
+                    'section' => $logEntry['section'],
+                    'trace_id' => $logEntry['trace_id'],
+                    'req_seq' => $logEntry['req_seq'],
+                    'span_id' => $logEntry['span_id'],
+                    'context' => $logEntry['context'],
+                    'metrics' => $logEntry['metrics'] ?? [],
+                    'correlation' => $logEntry['correlation'],
+                    '_superlog_entry' => $logEntry,  // Pass complete entry for the handler
+                ]
+            );
+        } catch (\Exception $e) {
+            // Silently fail if logging fails to prevent breaking the application
+        }
     }
 
     /**
