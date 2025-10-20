@@ -68,7 +68,7 @@ class SuperlogServiceProvider extends ServiceProvider
                 
                 // Create Superlog handler
                 $superlogHandler = $app->make(SuperlogHandler::class);
-                $superlogHandler->setStreamHandler($streamHandler);
+                $superlogHandler->setStreamHandler($streamHandler, $path);
                 
                 return new \Monolog\Logger(
                     $config['name'] ?? 'superlog',

@@ -12,6 +12,7 @@ class SuperlogHandler extends AbstractProcessingHandler
 {
     protected StructuredLogger $logger;
     protected ?StreamHandler $streamHandler = null;
+    protected ?string $filePath = null;
 
     public function __construct(StructuredLogger $logger, $level = \Monolog\Level::Debug)
     {
@@ -22,9 +23,10 @@ class SuperlogHandler extends AbstractProcessingHandler
     /**
      * Set a stream handler for writing logs to a file or stream
      */
-    public function setStreamHandler(StreamHandler $handler): self
+    public function setStreamHandler(StreamHandler $handler, ?string $filePath = null): self
     {
         $this->streamHandler = $handler;
+        $this->filePath = $filePath;
         return $this;
     }
 
@@ -60,12 +62,17 @@ class SuperlogHandler extends AbstractProcessingHandler
         if (!empty($logEntry)) {
             $formatted = $this->logger->formatLogEntry($logEntry);
             
-            // Write to stream handler if available
-            if ($this->streamHandler) {
-                // Write directly to the stream to avoid duplicate processing through the handler pipeline
-                fwrite($this->streamHandler->getStream(), $formatted . "\n");
+            // Write directly to file to avoid duplicate processing
+            if ($this->filePath) {
+                // Ensure directory exists
+                $dir = dirname($this->filePath);
+                if (!is_dir($dir)) {
+                    @mkdir($dir, 0755, true);
+                }
+                // Append to file
+                file_put_contents($this->filePath, $formatted . "\n", FILE_APPEND);
             } else {
-                // Fallback to echo if no stream handler
+                // Fallback to echo if no file path
                 echo $formatted . PHP_EOL;
             }
         }
