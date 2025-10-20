@@ -5,6 +5,7 @@ namespace Superlog\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Http\RedirectResponse;
 use Superlog\Logger\StructuredLogger;
 use Superlog\Utils\RequestTimer;
 
@@ -20,7 +21,7 @@ class RequestLifecycleMiddleware
     /**
      * Handle an incoming request
      */
-    public function handle(Request $request, Closure $next): Response
+    public function handle(Request $request, Closure $next): Response|RedirectResponse
     {
         $traceId = $request->header(config('superlog.trace_id_header', 'X-Trace-Id'))
             ?? request()->header('X-Trace-Id');
