@@ -558,68 +558,152 @@ class SuperlogCheckCommand extends Command
     protected function createMiddlewareFixScript(): void
     {
         $this->newLine();
-        $this->line('<fg=cyan>🔍 ANALYZING CONFIGURATION ISSUES...</>');
+        $this->line('<fg=cyan>🔍 INVESTIGATING ALL CONFIGURATION PARAMETERS...</>');
         $this->newLine();
 
-        $issues = [];
-        $fixes = [];
+        $issues = $this->gatherAllConfigurationIssues();
 
-        // 1. Check superlog.php channel config
-        $superlogChannel = config('superlog.channel', 'stack');
-        if ($superlogChannel !== 'superlog') {
-            $issues[] = '- config/superlog.php "channel" is set to "' . $superlogChannel . '" (should be "superlog")';
-            $fixes['superlog_channel'] = true;
-        }
-
-        // 2. Check LOG_CHANNEL environment variable
-        $logChannelEnv = env('LOG_CHANNEL', null);
-        if ($logChannelEnv !== 'superlog') {
-            $issues[] = '- .env "LOG_CHANNEL" is ' . ($logChannelEnv ? '"' . $logChannelEnv . '"' : 'not set') . ' (should be "superlog")';
-            $fixes['env_channel'] = true;
-        }
-
-        // 3. Check logging.php default channel
-        $loggingConfig = config('logging');
-        $defaultChannel = $loggingConfig['default'] ?? 'stack';
-        if ($defaultChannel !== 'superlog') {
-            $issues[] = '- config/logging.php "default" is set to "' . $defaultChannel . '" (should be "superlog")';
-            $fixes['logging_default'] = true;
-        }
-
-        // 4. Analyze stack channel configuration
-        $stackIssues = $this->analyzeLoggingStack();
-        foreach ($stackIssues as $issue) {
-            $issues[] = '- ' . $issue;
+        if (empty($issues)) {
+            $this->info('✅ All configuration parameters are properly set!');
+            return;
         }
 
         // Display all issues found
-        if (!empty($issues)) {
-            $this->line('<fg=red>Issues detected:</> ');
-            foreach ($issues as $issue) {
-                $this->line('  ' . $issue);
-            }
+        $this->line('<fg=red>⚠️  Issues detected:</> ');
+        foreach ($issues as $index => $issue) {
+            $this->line('  ' . ($index + 1) . '. ' . $issue['description']);
+        }
+        $this->newLine();
+
+        // Ask about each issue individually
+        $this->line('<fg=cyan>Would you like me to fix these issues?</>');
+        $this->newLine();
+
+        $confirmFixes = [];
+        foreach ($issues as $index => $issue) {
             $this->newLine();
-        }
-
-        // Offer to auto-fix
-        if (!empty($issues)) {
-            if (!$this->confirm('Would you like me to automatically fix these issues?', true)) {
-                $this->showManualFixes();
-                return;
+            $this->line('<fg=yellow>Issue #' . ($index + 1) . ':</> ' . $issue['description']);
+            $this->line('📌 ' . $issue['detail']);
+            
+            if ($this->confirm('Fix this issue?', true)) {
+                $confirmFixes[$issue['key']] = $issue;
+            } else {
+                $this->line('  <fg=yellow>Skipped</>');
             }
-
-            $this->applyAutoFixes($fixes);
         }
+
+        if (empty($confirmFixes)) {
+            $this->newLine();
+            $this->line('<fg=yellow>No fixes selected. Showing manual instructions:</>');
+            $this->newLine();
+            $this->showManualFixes($issues);
+            return;
+        }
+
+        $this->applyAutoFixes($confirmFixes);
 
         $this->newLine();
-        $this->line('🔄 After fixing, run the diagnostic again:');
+        $this->line('🔄 After fixing, clear cache and run the diagnostic again:');
+        $this->line('  <fg=cyan>php artisan cache:clear</>');
         $this->line('  <fg=cyan>php artisan superlog:check --diagnostics</>');
+    }
+
+    /**
+     * Gather all configuration issues
+     */
+    protected function gatherAllConfigurationIssues(): array
+    {
+        $issues = [];
+
+        // 1. Check .env LOG_CHANNEL
+        $logChannelEnv = env('LOG_CHANNEL', null);
+        if ($logChannelEnv !== 'superlog') {
+            $issues[] = [
+                'key' => 'env_channel',
+                'description' => '.env: LOG_CHANNEL is not set to "superlog"',
+                'detail' => $logChannelEnv ? 'Currently: LOG_CHANNEL=' . $logChannelEnv : 'Currently: LOG_CHANNEL is not defined',
+            ];
+        }
+
+        // 2. Check config/superlog.php channel
+        $superlogChannel = config('superlog.channel', 'stack');
+        if ($superlogChannel !== 'superlog') {
+            $issues[] = [
+                'key' => 'superlog_channel',
+                'description' => 'config/superlog.php: channel is set to "' . $superlogChannel . '" instead of "superlog"',
+                'detail' => 'The internal channel configuration should route logs to the superlog handler',
+            ];
+        }
+
+        // 3. Check config/logging.php default channel
+        $loggingConfig = config('logging');
+        $defaultChannel = $loggingConfig['default'] ?? 'stack';
+        if ($defaultChannel !== 'superlog') {
+            $issues[] = [
+                'key' => 'logging_default',
+                'description' => 'config/logging.php: default channel is set to "' . $defaultChannel . '" instead of "superlog"',
+                'detail' => 'The default logging channel should be "superlog" to use Superlog everywhere',
+            ];
+        }
+
+        // 4. Check if superlog channel exists in logging.php
+        if (!isset($loggingConfig['channels']['superlog'])) {
+            $issues[] = [
+                'key' => 'superlog_handler_missing',
+                'description' => 'config/logging.php: "superlog" channel handler is not configured',
+                'detail' => 'You need to add the superlog driver configuration to logging.php',
+            ];
+        }
+
+        // 5. Analyze stack channel configuration
+        $stackIssues = $this->analyzeLoggingStackForFixes();
+        foreach ($stackIssues as $stackIssue) {
+            $issues[] = $stackIssue;
+        }
+
+        return $issues;
+    }
+
+    /**
+     * Analyze stack channel configuration and return fixable issues
+     */
+    protected function analyzeLoggingStackForFixes(): array
+    {
+        $issues = [];
+        $logging = config('logging');
+        $defaultChannel = $logging['default'] ?? 'stack';
+
+        if ($defaultChannel === 'stack') {
+            $stack = $logging['channels']['stack'] ?? [];
+            $channels = $stack['channels'] ?? [];
+
+            if (!in_array('superlog', $channels)) {
+                $issues[] = [
+                    'key' => 'stack_missing_superlog',
+                    'description' => 'config/logging.php: Stack channel does not include "superlog"',
+                    'detail' => 'Add "superlog" to the stack channels list so logs are routed to Superlog',
+                ];
+            }
+
+            $localPos = array_search('local', $channels);
+            $superlogPos = array_search('superlog', $channels);
+
+            if ($localPos !== false && $superlogPos !== false && $localPos < $superlogPos) {
+                $issues[] = [
+                    'key' => 'stack_wrong_order',
+                    'description' => 'config/logging.php: Stack has "local" before "superlog" - logs stop at local',
+                    'detail' => 'Reorder stack so "superlog" comes before "local", or remove "local" entirely',
+                ];
+            }
+        }
+
+        return $issues;
     }
 
     /**
      * Apply automatic fixes to configuration
      */
-    protected function applyAutoFixes(array $fixes): void
+    protected function applyAutoFixes(array $confirmFixes): void
     {
         $this->newLine();
         $this->line('<fg=cyan>⚙️  APPLYING AUTOMATIC FIXES...</>');
@@ -629,40 +713,69 @@ class SuperlogCheckCommand extends Command
         $loggingConfigPath = config_path('logging.php');
         $superlogConfigPath = config_path('superlog.php');
 
-        // Fix 1: Update .env file
-        if (isset($fixes['env_channel'])) {
-            $this->output->write('Updating .env file... ');
+        $successCount = 0;
+        $failureCount = 0;
+
+        // Fix: Update .env file
+        if (isset($confirmFixes['env_channel'])) {
+            $this->output->write('  1. Updating .env (LOG_CHANNEL=superlog)... ');
             if ($this->updateEnvFile($envPath)) {
                 $this->line('<fg=green>✓</>');
+                $successCount++;
             } else {
-                $this->line('<fg=red>✗</> (permissions issue or file not found)');
+                $this->line('<fg=red>✗</> (file not found or permission denied)');
+                $failureCount++;
             }
         }
 
-        // Fix 2: Update config/logging.php default channel
-        if (isset($fixes['logging_default'])) {
-            $this->output->write('Updating config/logging.php default channel... ');
-            if ($this->updateLoggingConfig($loggingConfigPath)) {
-                $this->line('<fg=green>✓</>');
-            } else {
-                $this->line('<fg=red>✗</> (could not update)');
-            }
-        }
-
-        // Fix 3: Update config/superlog.php channel
-        if (isset($fixes['superlog_channel'])) {
-            $this->output->write('Updating config/superlog.php channel... ');
+        // Fix: Update config/superlog.php channel
+        if (isset($confirmFixes['superlog_channel'])) {
+            $this->output->write('  2. Updating config/superlog.php (channel=superlog)... ');
             if ($this->updateSuperlogConfig($superlogConfigPath)) {
                 $this->line('<fg=green>✓</>');
+                $successCount++;
             } else {
                 $this->line('<fg=red>✗</> (could not update)');
+                $failureCount++;
+            }
+        }
+
+        // Fix: Update config/logging.php default channel
+        if (isset($confirmFixes['logging_default'])) {
+            $this->output->write('  3. Updating config/logging.php (default=superlog)... ');
+            if ($this->updateLoggingConfig($loggingConfigPath)) {
+                $this->line('<fg=green>✓</>');
+                $successCount++;
+            } else {
+                $this->line('<fg=red>✗</> (could not update)');
+                $failureCount++;
+            }
+        }
+
+        // Fix: Add superlog to stack (if applicable)
+        if (isset($confirmFixes['stack_missing_superlog']) || isset($confirmFixes['stack_wrong_order'])) {
+            $this->output->write('  4. Updating config/logging.php stack channels... ');
+            if ($this->updateStackChannels($loggingConfigPath)) {
+                $this->line('<fg=green>✓</>');
+                $successCount++;
+            } else {
+                $this->line('<fg=red>✗</> (could not update)');
+                $failureCount++;
             }
         }
 
         $this->newLine();
-        $this->info('✅ Fixes applied! Now clearing Laravel cache...');
+        if ($successCount > 0) {
+            $this->info('✅ ' . $successCount . ' configuration(s) fixed successfully!');
+        }
+        if ($failureCount > 0) {
+            $this->warn('⚠️  ' . $failureCount . ' configuration(s) could not be auto-fixed');
+        }
+
         $this->newLine();
-        $this->line('Run: <fg=cyan>php artisan cache:clear</>');
+        $this->line('⚡ <fg=cyan>NEXT STEPS:</>');
+        $this->line('  1. Clear Laravel cache: <fg=cyan>php artisan cache:clear</>');
+        $this->line('  2. Verify the fixes: <fg=cyan>php artisan superlog:check --diagnostics</>');
     }
 
     /**
@@ -758,34 +871,117 @@ class SuperlogCheckCommand extends Command
     }
 
     /**
-     * Show manual fix instructions
+     * Update config/logging.php stack channels to include superlog
      */
-    protected function showManualFixes(): void
+    protected function updateStackChannels(string $path): bool
+    {
+        if (!File::exists($path)) {
+            return false;
+        }
+
+        try {
+            $content = File::get($path);
+            
+            // Check if stack already has superlog
+            if (preg_match('/\'stack\'\s*=>\s*\[[^\]]*\'channels\'\s*=>\s*\[[^\]]*[\'"]superlog[\'"]/s', $content)) {
+                return true; // Already configured
+            }
+
+            // Replace the channels array in stack to add superlog
+            $newContent = preg_replace(
+                '/\'stack\'\s*=>\s*\[\s*\'channels\'\s*=>\s*\[(.*?)\]\s*,/',
+                "'stack' => [\n            'channels' => ['superlog', \$1],",
+                $content
+            );
+
+            if ($newContent === $content) {
+                return false; // No change made
+            }
+
+            File::put($path, $newContent);
+            return true;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Show manual fix instructions for each issue
+     */
+    protected function showManualFixes(array $issues = []): void
     {
         $this->newLine();
         $this->info('🔧 MANUAL FIX INSTRUCTIONS');
         $this->newLine();
 
-        $this->line('1. Update .env file:');
-        $this->line('   <fg=yellow>LOG_CHANNEL=superlog</>');
-        $this->newLine();
+        if (empty($issues)) {
+            $this->line('Unable to auto-fix. Please manually resolve the configuration issues:');
+            $this->newLine();
+        }
 
-        $this->line('2. Update config/logging.php:');
-        $this->line('   Find: <fg=yellow>\'default\' => env(\'LOG_CHANNEL\', \'...\'),</>');
-        $this->line('   Change to: <fg=yellow>\'default\' => env(\'LOG_CHANNEL\', \'superlog\'),</>');
-        $this->newLine();
+        // Group issues by file for cleaner presentation
+        $issuesByFile = [
+            '.env' => [],
+            'config/superlog.php' => [],
+            'config/logging.php' => [],
+        ];
 
-        $this->line('3. Update config/superlog.php:');
-        $this->line('   Find: <fg=yellow>\'channel\' => env(\'LOG_CHANNEL\', \'...\'),</>');
-        $this->line('   Change to: <fg=yellow>\'channel\' => env(\'LOG_CHANNEL\', \'superlog\'),</>');
-        $this->newLine();
+        foreach ($issues as $issue) {
+            if ($issue['key'] === 'env_channel') {
+                $issuesByFile['.env'][] = $issue;
+            } elseif ($issue['key'] === 'superlog_channel') {
+                $issuesByFile['config/superlog.php'][] = $issue;
+            } else {
+                $issuesByFile['config/logging.php'][] = $issue;
+            }
+        }
 
-        $this->line('4. Clear Laravel cache:');
-        $this->line('   <fg=cyan>php artisan cache:clear</>');
-        $this->newLine();
+        // Show .env fixes
+        if (!empty($issuesByFile['.env'])) {
+            $this->line('<fg=yellow>📄 File: .env</>');
+            foreach ($issuesByFile['.env'] as $issue) {
+                $this->line('  ' . $issue['description']);
+                $this->line('  Action: Add or update this line:');
+                $this->line('    <fg=cyan>LOG_CHANNEL=superlog</>');
+            }
+            $this->newLine();
+        }
 
-        $this->line('5. If logs still go to "local" channel, search your code:');
-        $this->line('   grep -r "Log::channel(\'local\')" app/');
-        $this->line('   grep -r "Log::channel(\"local\")" app/');
+        // Show config/superlog.php fixes
+        if (!empty($issuesByFile['config/superlog.php'])) {
+            $this->line('<fg=yellow>📄 File: config/superlog.php</>');
+            foreach ($issuesByFile['config/superlog.php'] as $issue) {
+                $this->line('  ' . $issue['description']);
+                $this->line('  Action: Update the channel setting:');
+                $this->line('    From: <fg=red>\'channel\' => env(\'LOG_CHANNEL\', \'...\'),</>');
+                $this->line('    To:   <fg=green>\'channel\' => env(\'LOG_CHANNEL\', \'superlog\'),</>');
+            }
+            $this->newLine();
+        }
+
+        // Show config/logging.php fixes
+        if (!empty($issuesByFile['config/logging.php'])) {
+            $this->line('<fg=yellow>📄 File: config/logging.php</>');
+            foreach ($issuesByFile['config/logging.php'] as $issue) {
+                $this->line('  ' . $issue['description']);
+                
+                if ($issue['key'] === 'logging_default') {
+                    $this->line('  Action: Update the default channel:');
+                    $this->line('    From: <fg=red>\'default\' => env(\'LOG_CHANNEL\', \'...\'),</>');
+                    $this->line('    To:   <fg=green>\'default\' => env(\'LOG_CHANNEL\', \'superlog\'),</>');
+                } elseif (in_array($issue['key'], ['stack_missing_superlog', 'stack_wrong_order'])) {
+                    $this->line('  Action: Update stack channels:');
+                    $this->line('    Make sure \'superlog\' is in the channels array:');
+                    $this->line('    <fg=cyan>\'channels\' => [\'superlog\', \'single\'],</>');
+                }
+            }
+            $this->newLine();
+        }
+
+        $this->line('⚡ <fg=cyan>Final Steps:</>');
+        $this->line('  1. Edit the files shown above');
+        $this->line('  2. Save the files');
+        $this->line('  3. Clear Laravel cache: <fg=cyan>php artisan cache:clear</>');
+        $this->line('  4. Run diagnostic again: <fg=cyan>php artisan superlog:check --diagnostics</>');
     }
 }
