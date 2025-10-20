@@ -7,6 +7,7 @@ use Illuminate\Log\LogManager;
 use Superlog\Handlers\SuperlogHandler;
 use Superlog\Middleware\RequestLifecycleMiddleware;
 use Superlog\Logger\StructuredLogger;
+use Superlog\Commands\SuperlogCheckCommand;
 
 class SuperlogServiceProvider extends ServiceProvider
 {
@@ -37,6 +38,10 @@ class SuperlogServiceProvider extends ServiceProvider
         $this->publishes([
             __DIR__ . '/../config/superlog.php' => config_path('superlog.php'),
         ], 'config');
+
+        $this->commands([
+            SuperlogCheckCommand::class,
+        ]);
 
         $this->registerMonologHandler();
         $this->registerMiddleware();
