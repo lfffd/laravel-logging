@@ -296,6 +296,11 @@ class StructuredLogger
      */
     protected function formatAsText(array $entry): string
     {
+        // Skip empty entries (no message, no context, no metrics)
+        if (empty($entry['message']) && empty($entry['context']) && empty($entry['metrics'])) {
+            return '';
+        }
+
         $timestamp = $entry['timestamp'];
         $level = $entry['level'];
         $section = $entry['section'];

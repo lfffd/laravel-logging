@@ -27,6 +27,12 @@ class RedactionProcessor
             return $entry;
         }
 
+        // Skip redaction for STARTUP and SHUTDOWN sections (trusted system data)
+        $section = trim($entry['section'] ?? '', '[]');
+        if (in_array($section, ['STARTUP', 'SHUTDOWN'])) {
+            return $entry;
+        }
+
         // Redact context
         if (isset($entry['context']) && is_array($entry['context'])) {
             $entry['context'] = $this->redactArray($entry['context']);
