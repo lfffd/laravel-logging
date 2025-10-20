@@ -132,6 +132,33 @@ class CommandDiagnosticsTest extends TestCase
     }
 
     /**
+     * Test 7: Formatted output includes trace_id and req_seq in correct pattern
+     */
+    public function test_diagnostic_formatted_output_structure(): void
+    {
+        $this->logger->initializeRequest('GET', '/check', '127.0.0.1', 'format-check-123');
+        $entry = $this->logger->log('info', 'CHECK_SECTION', 'Check message', [
+            'test_data' => 'test_value',
+            'session_id' => 'sess_12345',
+        ]);
+        
+        $formatted = $this->logger->formatLogEntry($entry);
+        
+        // Verify format: [trace_id:req_seq]
+        $this->assertStringContainsString('format-check-123:0000000001', $formatted);
+        
+        // Verify section is preserved
+        $this->assertStringContainsString('[CHECK_SECTION]', $formatted);
+        
+        // Verify message is preserved
+        $this->assertStringContainsString('Check message', $formatted);
+        
+        // Verify data is preserved
+        $this->assertStringContainsString('test_data', $formatted);
+        $this->assertStringContainsString('session_id', $formatted);
+    }
+
+    /**
      * Summary test showing all diagnostics work
      */
     public function test_all_diagnostics_pass(): void
@@ -146,13 +173,14 @@ class CommandDiagnosticsTest extends TestCase
         echo "✅ Test 3: Text formatting\n";
         echo "✅ Test 4: JSON formatting\n";
         echo "✅ Test 5: Trace ID isolation\n";
-        echo "✅ Test 6: Sequence reset per request\n\n";
+        echo "✅ Test 6: Sequence reset per request\n";
+        echo "✅ Test 7: Formatted output structure\n\n";
 
         echo "Usage:\n";
         echo "  php artisan superlog:check                    # Run basic checks\n";
         echo "  php artisan superlog:check --test             # Also write test entry\n";
-        echo "  php artisan superlog:check --diagnostics      # Also run diagnostic tests\n";
-        echo "  php artisan superlog:check --test --diagnostics # All checks + tests\n\n";
+        echo "  php artisan superlog:check --diagnostics      # Also run diagnostic tests + log file verification\n";
+        echo "  php artisan superlog:check --test --diagnostics # All checks + tests + log file write\n\n";
 
         echo "Expected log format:\n";
         echo "  [2025-10-20T10:47:15.123456Z] superlog.INFO: [uuid:0000000001] [SECTION] message\n";

@@ -333,75 +333,109 @@ class SuperlogCheckCommand extends Command
      */
     protected function checkActualLogs(): void
     {
+        $this->newLine();
+        $this->output->write('Test 7: Writing actual test entry to superlog channel... ');
+        
+        // Get the current log file size before writing
         $logPath = storage_path('logs/laravel-' . now()->format('Y-m-d') . '.log');
+        $fileSizeBefore = File::exists($logPath) ? filesize($logPath) : 0;
         
-        if (!File::exists($logPath)) {
-            $this->warn('⚠ No log file found yet');
-            return;
-        }
-
-        $content = File::get($logPath);
-        $lines = explode("\n", $content);
-        $recentLines = array_slice($lines, -30);
+        // Generate unique marker for this test
+        $testMarker = 'SUPERLOG_TEST_' . uniqid('', true);
+        $testTraceId = 'diagnostic-trace-' . uniqid();
         
-        // Check for Superlog formatting
-        $superlogEntries = 0;
-        $localChannelEntries = 0;
-        $traceIdPattern = 0;
-        $reqSeqPattern = 0;
-        
-        foreach ($recentLines as $line) {
-            if (strpos($line, 'superlog.') !== false) {
-                $superlogEntries++;
+        try {
+            // Write a test entry to the superlog channel
+            Log::channel('superlog')->info('🧪 Superlog Diagnostic Test', [
+                'test_marker' => $testMarker,
+                'test_type' => 'DIAGNOSTICS',
+                'timestamp' => now()->toIso8601String(),
+                'session_test' => 'session_data_test',
+            ]);
+            
+            // Give the logger a moment to write
+            usleep(100000);
+            
+            // Now read the log file
+            if (!File::exists($logPath)) {
+                $this->line('<fg=red>✗</>');
+                $this->newLine();
+                $this->error('❌ Log file was not created');
+                return;
             }
-            if (strpos($line, 'local.') !== false) {
-                $localChannelEntries++;
+            
+            $content = File::get($logPath);
+            $lines = explode("\n", $content);
+            
+            // Search for our test entry
+            $testEntryFound = null;
+            foreach (array_reverse($lines) as $line) {
+                if (strpos($line, $testMarker) !== false) {
+                    $testEntryFound = $line;
+                    break;
+                }
             }
-            if (preg_match('/\[[\w\-]+:\d{10}\]/', $line)) {
-                $traceIdPattern++;
+            
+            if (!$testEntryFound) {
+                $this->line('<fg=red>✗</>');
+                $this->newLine();
+                $this->error('❌ Test entry was not found in log file');
+                $this->line('');
+                $this->line('This means Superlog is NOT writing to the log file.');
+                $this->line('Check that your logging.php has the superlog channel configured.');
+                return;
             }
-            if (preg_match('/req_seq.*\d{10}/', $line)) {
-                $reqSeqPattern++;
+            
+            // Verify the test entry has proper formatting
+            $hasChannel = strpos($testEntryFound, 'superlog.') !== false;
+            $hasTraceId = preg_match('/\[[\w\-]+:\d{10}\]/', $testEntryFound) !== false;
+            $hasTestMarker = strpos($testEntryFound, $testMarker) !== false;
+            $hasTimestamp = preg_match('/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/', $testEntryFound) !== false;
+            
+            if ($hasChannel && $hasTraceId && $hasTestMarker && $hasTimestamp) {
+                $this->line('<fg=green>✓</>');
+                $this->newLine();
+                $this->info('✅ Test entry successfully written and verified!');
+                $this->newLine();
+                $this->info('Log entry details:');
+                $this->line('  ' . substr($testEntryFound, 0, 180) . (strlen($testEntryFound) > 180 ? '...' : ''));
+                $this->newLine();
+                $this->line('✅ Format verification:');
+                $this->line('  Channel: ' . ($hasChannel ? '<fg=green>✓ superlog</>' : '<fg=red>✗ NOT superlog</>'));
+                $this->line('  Timestamp: ' . ($hasTimestamp ? '<fg=green>✓ ISO8601</>' : '<fg=red>✗ Invalid</>'));
+                $this->line('  Trace ID + Seq: ' . ($hasTraceId ? '<fg=green>✓ [id:seq] found</>' : '<fg=red>✗ Missing</>'));
+                $this->line('  Data preserved: ' . ($hasTestMarker ? '<fg=green>✓ Yes</>' : '<fg=red>✗ No</>'));
+                $this->newLine();
+                $this->info('✅ APPLICATION INTEGRATION SUCCESSFUL');
+                $this->line('Your Superlog is properly configured and working!');
+            } else {
+                $this->line('<fg=red>✗</>');
+                $this->newLine();
+                $this->error('❌ Test entry found but with incorrect format');
+                $this->newLine();
+                $this->line('Expected format:');
+                $this->line('  [timestamp] superlog.INFO: [trace-id:seq-number] [SECTION] message {...}');
+                $this->newLine();
+                $this->line('Actual log entry:');
+                $this->line('  ' . $testEntryFound);
+                $this->newLine();
+                $this->line('Format verification:');
+                $this->line('  Channel: ' . ($hasChannel ? '<fg=green>✓</>' : '<fg=red>✗</>'));
+                $this->line('  Timestamp: ' . ($hasTimestamp ? '<fg=green>✓</>' : '<fg=red>✗</>'));
+                $this->line('  Trace ID + Seq: ' . ($hasTraceId ? '<fg=green>✓</>' : '<fg=red>✗</>'));
+                $this->line('  Data: ' . ($hasTestMarker ? '<fg=green>✓</>' : '<fg=red>✗</>'));
             }
-        }
-        
-        $this->newLine();
-        $this->info('Last 10 log lines analysis:');
-        foreach (array_slice($recentLines, -10) as $line) {
-            if (trim($line)) {
-                $line = substr($line, 0, 140) . (strlen($line) > 140 ? '...' : '');
-                $this->line('  ' . $line);
-            }
-        }
-        
-        $this->newLine();
-        $this->line('📊 Log Channel Analysis:');
-        $this->line("  Superlog channel entries: <fg=" . ($superlogEntries > 0 ? 'green' : 'red') . ">$superlogEntries</>");
-        $this->line("  Local channel entries: <fg=" . ($localChannelEntries > 0 ? 'yellow' : 'green') . ">$localChannelEntries</>");
-        $this->line("  Entries with trace_id:req_seq pattern: <fg=" . ($traceIdPattern > 0 ? 'green' : 'red') . ">$traceIdPattern</>");
-        
-        if ($localChannelEntries > 0 && $superlogEntries === 0) {
+            
+        } catch (\Exception $e) {
+            $this->line('<fg=red>✗</>');
             $this->newLine();
-            $this->error('❌ INTEGRATION ISSUE DETECTED');
+            $this->error('❌ Error writing test entry: ' . $e->getMessage());
             $this->line('');
-            $this->line('Your middleware is logging to the <fg=red>local</> channel instead of <fg=green>superlog</> channel.');
-            $this->line('');
-            $this->line('This means your middleware code is using:');
-            $this->line('  <fg=red>Log::info(...)</> or <fg=red>Log::channel(\'local\')->info(...)</></>');
-            $this->line('');
-            $this->line('But it should be using:');
-            $this->line('  <fg=green>Superlog::log(...)</> or <fg=green>Log::channel(\'superlog\')->info(...)</></>');
-            $this->line('');
-            $this->line('📋 To fix this, update your middleware to:');
-            $this->line('  1. Import: use Superlog\\Facades\\Superlog;');
-            $this->line('  2. Call: Superlog::initializeRequest(...) in a global middleware');
-            $this->line('  3. Log with: Superlog::log() or Log::channel(\'superlog\')->info()');
-            $this->line('');
-            $this->line('See: INTEGRATION_CHECKLIST.md for detailed instructions');
-        } elseif ($superlogEntries > 0) {
-            $this->newLine();
-            $this->info('✅ APPLICATION INTEGRATION SUCCESSFUL');
-            $this->line('Your middleware is correctly using the superlog channel!');
+            $this->line('Verify your config/logging.php has:');
+            $this->line('  \'superlog\' => [');
+            $this->line('      \'driver\' => \'superlog\',');
+            $this->line('      ...');
+            $this->line('  ]');
         }
     }
 }

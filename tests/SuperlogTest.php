@@ -111,13 +111,13 @@ class SuperlogTest extends TestCase
             'AuthenticateWithApiKey',
             123.45,
             200,
-            ['keys_checked' => 3]
+            ['checks_performed' => 3]
         );
 
         $this->assertEquals('[MIDDLEWARE-END]', $entry['section']);
         $this->assertEquals(123.45, $entry['metrics']['duration_ms']);
         $this->assertEquals(200, $entry['metrics']['response_status']);
-        $this->assertEquals(3, $entry['metrics']['keys_checked']);
+        $this->assertEquals(3, $entry['metrics']['checks_performed']);
     }
 
     public function test_log_database_stats()
