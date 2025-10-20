@@ -56,11 +56,23 @@ class SuperlogServiceProvider extends ServiceProvider
 
         if ($manager instanceof LogManager) {
             $manager->extend('superlog', function ($app, array $config) {
+                // Create stream handler for file writing
+                $path = $config['path'] ?? storage_path('logs/laravel-' . date('Y-m-d') . '.log');
+                $streamHandler = new \Monolog\Handler\StreamHandler(
+                    $path,
+                    \Monolog\Level::Debug
+                );
+                
+                // Remove default formatting - we handle that in SuperlogHandler
+                $streamHandler->setFormatter(new \Monolog\Formatter\LineFormatter("%message%\n"));
+                
+                // Create Superlog handler
+                $superlogHandler = $app->make(SuperlogHandler::class);
+                $superlogHandler->setStreamHandler($streamHandler);
+                
                 return new \Monolog\Logger(
                     $config['name'] ?? 'superlog',
-                    [
-                        $app->make(SuperlogHandler::class),
-                    ]
+                    [$superlogHandler]
                 );
             });
         }

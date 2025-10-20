@@ -261,10 +261,13 @@ class StructuredLogger
         $level = $entry['level'];
         $section = $entry['section'];
         $message = $entry['message'];
+        $traceId = $entry['trace_id'] ?? 'N/A';
+        $reqSeq = $entry['req_seq'] ?? '0000000000';
         $context = json_encode($entry['context'] ?? [], JSON_UNESCAPED_SLASHES);
         $metrics = json_encode($entry['metrics'] ?? [], JSON_UNESCAPED_SLASHES);
 
-        $header = "[$timestamp] {$this->config['channel']}.$level: $section $message";
+        // Include trace_id and req_seq in the header for better traceability
+        $header = "[$timestamp] {$this->config['channel']}.$level: [$traceId:$reqSeq] $section $message";
 
         if (empty($entry['context']) && empty($entry['metrics'])) {
             return $header;

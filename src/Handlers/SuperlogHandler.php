@@ -3,17 +3,29 @@
 namespace Superlog\Handlers;
 
 use Monolog\Handler\AbstractProcessingHandler;
+use Monolog\Handler\StreamHandler;
 use Monolog\LogRecord;
+use Monolog\Formatter\FormatterInterface;
 use Superlog\Logger\StructuredLogger;
 
 class SuperlogHandler extends AbstractProcessingHandler
 {
     protected StructuredLogger $logger;
+    protected ?StreamHandler $streamHandler = null;
 
     public function __construct(StructuredLogger $logger, $level = \Monolog\Level::Debug)
     {
         parent::__construct($level);
         $this->logger = $logger;
+    }
+
+    /**
+     * Set a stream handler for writing logs to a file or stream
+     */
+    public function setStreamHandler(StreamHandler $handler): self
+    {
+        $this->streamHandler = $handler;
+        return $this;
     }
 
     /**
@@ -48,8 +60,23 @@ class SuperlogHandler extends AbstractProcessingHandler
         // Format and output
         if (!empty($logEntry)) {
             $formatted = $this->logger->formatLogEntry($logEntry);
-            // Output will be handled by the stream handler or other handlers in the stack
-            echo $formatted . PHP_EOL;
+            
+            // Write to stream handler if available
+            if ($this->streamHandler) {
+                $this->streamHandler->write(
+                    new LogRecord(
+                        $record->datetime,
+                        $record->channel,
+                        $record->level,
+                        $formatted,
+                        $record->extra,
+                        $record->context
+                    )
+                );
+            } else {
+                // Fallback to echo if no stream handler
+                echo $formatted . PHP_EOL;
+            }
         }
     }
 }
