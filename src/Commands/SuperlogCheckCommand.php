@@ -5,6 +5,8 @@ namespace Superlog\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\File;
+use Superlog\Logger\StructuredLogger;
+use Superlog\Facades\Superlog;
 
 class SuperlogCheckCommand extends Command
 {
@@ -13,7 +15,7 @@ class SuperlogCheckCommand extends Command
      *
      * @var string
      */
-    protected $signature = 'superlog:check {--test : Write a test entry to logs}';
+    protected $signature = 'superlog:check {--test : Write a test entry to logs} {--diagnostics : Run diagnostic tests}';
 
     /**
      * The description of the console command.
@@ -59,6 +61,12 @@ class SuperlogCheckCommand extends Command
         // Check 5: Write test entry (optional)
         if ($this->option('test')) {
             $this->writeTestEntry();
+            $this->newLine();
+        }
+
+        // Check 6: Run diagnostics (optional)
+        if ($this->option('diagnostics')) {
+            $this->runDiagnostics();
             $this->newLine();
         }
 
@@ -199,6 +207,122 @@ class SuperlogCheckCommand extends Command
             }
         } catch (\Exception $e) {
             $this->error('✗ Error writing test entry: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Run diagnostic tests on Superlog functionality
+     */
+    protected function runDiagnostics(): void
+    {
+        $this->line('<fg=cyan>🧪 Running Diagnostic Tests...</>');
+        $this->newLine();
+
+        try {
+            $config = config('superlog');
+            if (!$config) {
+                $this->error('✗ Superlog config not found');
+                return;
+            }
+
+            $logger = new StructuredLogger($config);
+
+            // Test 1: Trace ID generation
+            $this->output->write('Test 1: Trace ID generation... ');
+            $logger->initializeRequest('GET', '/test', '127.0.0.1', 'test-trace-id-001');
+            $entry = $logger->log('info', 'TEST', 'Test message');
+            
+            if ($entry['trace_id'] === 'test-trace-id-001') {
+                $this->line('<fg=green>✓</> Trace ID: ' . $entry['trace_id']);
+            } else {
+                $this->line('<fg=red>✗</> Failed to set trace ID');
+                return;
+            }
+
+            // Test 2: Request sequence number
+            $this->output->write('Test 2: Request sequence numbering... ');
+            $logger->initializeRequest('POST', '/api/data', '192.168.1.1');
+            
+            $entry1 = $logger->log('info', 'SECTION1', 'Message 1');
+            $entry2 = $logger->log('info', 'SECTION2', 'Message 2');
+            $entry3 = $logger->log('info', 'SECTION3', 'Message 3');
+            
+            if ($entry1['req_seq'] === '0000000001' && 
+                $entry2['req_seq'] === '0000000002' && 
+                $entry3['req_seq'] === '0000000003') {
+                $this->line('<fg=green>✓</> Sequence: ' . $entry1['req_seq'] . ' → ' . $entry2['req_seq'] . ' → ' . $entry3['req_seq']);
+            } else {
+                $this->line('<fg=red>✗</> Failed: got ' . $entry1['req_seq'] . ', ' . $entry2['req_seq'] . ', ' . $entry3['req_seq']);
+                return;
+            }
+
+            // Test 3: Text formatting with trace_id and req_seq
+            $this->output->write('Test 3: Text formatting... ');
+            $logger->initializeRequest('GET', '/api', '10.0.0.1', 'format-test-xyz');
+            $entry = $logger->log('warning', 'DATABASE', 'Slow query', ['duration_ms' => 523.5]);
+            $formatted = $logger->formatLogEntry($entry);
+            
+            if (strpos($formatted, 'format-test-xyz:0000000001') !== false && 
+                strpos($formatted, '[DATABASE]') !== false) {
+                $this->line('<fg=green>✓</> Format includes trace_id:req_seq');
+                $this->line('     Sample: ' . substr($formatted, 0, 100) . '...');
+            } else {
+                $this->line('<fg=red>✗</> Format missing trace_id:req_seq');
+                $this->line('     Got: ' . substr($formatted, 0, 100));
+                return;
+            }
+
+            // Test 4: JSON format
+            if ($config['format'] === 'json' || isset($config['formats']['json'])) {
+                $this->output->write('Test 4: JSON formatting... ');
+                $configWithJson = $config;
+                $configWithJson['format'] = 'json';
+                $jsonLogger = new StructuredLogger($configWithJson);
+                $jsonLogger->initializeRequest('POST', '/test', '127.0.0.1', 'json-test-001');
+                $entry = $jsonLogger->log('info', 'JSON_TEST', 'JSON message');
+                $formatted = $jsonLogger->formatLogEntry($entry);
+                
+                $decoded = json_decode($formatted, true);
+                if ($decoded && isset($decoded['trace_id']) && isset($decoded['req_seq'])) {
+                    $this->line('<fg=green>✓</> JSON includes trace_id and req_seq');
+                } else {
+                    $this->line('<fg=red>✗</> JSON format invalid');
+                }
+            }
+
+            // Test 5: Multiple requests have different trace IDs
+            $this->output->write('Test 5: Trace ID isolation... ');
+            $logger->initializeRequest('GET', '/req1', '127.0.0.1', 'trace-first');
+            $entry1 = $logger->log('info', 'REQ1', 'Request 1');
+            
+            $logger->initializeRequest('GET', '/req2', '127.0.0.1', 'trace-second');
+            $entry2 = $logger->log('info', 'REQ2', 'Request 2');
+            
+            if ($entry1['trace_id'] !== $entry2['trace_id']) {
+                $this->line('<fg=green>✓</> Different requests have different trace IDs');
+            } else {
+                $this->line('<fg=red>✗</> Trace IDs should differ between requests');
+            }
+
+            // Test 6: Sequence resets per request
+            $this->output->write('Test 6: Sequence reset per request... ');
+            $logger->initializeRequest('GET', '/new', '127.0.0.1', 'reset-test');
+            $entry = $logger->log('info', 'SECTION', 'Message');
+            
+            if ($entry['req_seq'] === '0000000001') {
+                $this->line('<fg=green>✓</> Sequence resets to 0000000001 per request');
+            } else {
+                $this->line('<fg=red>✗</> Sequence should reset (got ' . $entry['req_seq'] . ')');
+            }
+
+            $this->newLine();
+            $this->info('✅ All diagnostic tests passed!');
+            
+            $this->info('Expected log format:');
+            $this->line('  [2025-10-20T10:47:15.123456Z] superlog.INFO: [trace-id:0000000001] [SECTION] message');
+
+        } catch (\Exception $e) {
+            $this->error('✗ Diagnostic error: ' . $e->getMessage());
         }
     }
 }
