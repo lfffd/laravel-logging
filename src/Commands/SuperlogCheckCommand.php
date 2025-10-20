@@ -316,13 +316,92 @@ class SuperlogCheckCommand extends Command
             }
 
             $this->newLine();
-            $this->info('✅ All diagnostic tests passed!');
+            $this->info('✅ Unit tests passed! Superlog package works correctly.');
             
-            $this->info('Expected log format:');
-            $this->line('  [2025-10-20T10:47:15.123456Z] superlog.INFO: [trace-id:0000000001] [SECTION] message');
+            // Now check actual application logs
+            $this->newLine();
+            $this->line('<fg=cyan>🔍 Checking actual application logs...</>');
+            $this->checkActualLogs();
 
         } catch (\Exception $e) {
             $this->error('✗ Diagnostic error: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Check if actual application logs are using Superlog
+     */
+    protected function checkActualLogs(): void
+    {
+        $logPath = storage_path('logs/laravel-' . now()->format('Y-m-d') . '.log');
+        
+        if (!File::exists($logPath)) {
+            $this->warn('⚠ No log file found yet');
+            return;
+        }
+
+        $content = File::get($logPath);
+        $lines = explode("\n", $content);
+        $recentLines = array_slice($lines, -30);
+        
+        // Check for Superlog formatting
+        $superlogEntries = 0;
+        $localChannelEntries = 0;
+        $traceIdPattern = 0;
+        $reqSeqPattern = 0;
+        
+        foreach ($recentLines as $line) {
+            if (strpos($line, 'superlog.') !== false) {
+                $superlogEntries++;
+            }
+            if (strpos($line, 'local.') !== false) {
+                $localChannelEntries++;
+            }
+            if (preg_match('/\[[\w\-]+:\d{10}\]/', $line)) {
+                $traceIdPattern++;
+            }
+            if (preg_match('/req_seq.*\d{10}/', $line)) {
+                $reqSeqPattern++;
+            }
+        }
+        
+        $this->newLine();
+        $this->info('Last 10 log lines analysis:');
+        foreach (array_slice($recentLines, -10) as $line) {
+            if (trim($line)) {
+                $line = substr($line, 0, 140) . (strlen($line) > 140 ? '...' : '');
+                $this->line('  ' . $line);
+            }
+        }
+        
+        $this->newLine();
+        $this->line('📊 Log Channel Analysis:');
+        $this->line("  Superlog channel entries: <fg=" . ($superlogEntries > 0 ? 'green' : 'red') . ">$superlogEntries</>");
+        $this->line("  Local channel entries: <fg=" . ($localChannelEntries > 0 ? 'yellow' : 'green') . ">$localChannelEntries</>");
+        $this->line("  Entries with trace_id:req_seq pattern: <fg=" . ($traceIdPattern > 0 ? 'green' : 'red') . ">$traceIdPattern</>");
+        
+        if ($localChannelEntries > 0 && $superlogEntries === 0) {
+            $this->newLine();
+            $this->error('❌ INTEGRATION ISSUE DETECTED');
+            $this->line('');
+            $this->line('Your middleware is logging to the <fg=red>local</> channel instead of <fg=green>superlog</> channel.');
+            $this->line('');
+            $this->line('This means your middleware code is using:');
+            $this->line('  <fg=red>Log::info(...)</> or <fg=red>Log::channel(\'local\')->info(...)</></>');
+            $this->line('');
+            $this->line('But it should be using:');
+            $this->line('  <fg=green>Superlog::log(...)</> or <fg=green>Log::channel(\'superlog\')->info(...)</></>');
+            $this->line('');
+            $this->line('📋 To fix this, update your middleware to:');
+            $this->line('  1. Import: use Superlog\\Facades\\Superlog;');
+            $this->line('  2. Call: Superlog::initializeRequest(...) in a global middleware');
+            $this->line('  3. Log with: Superlog::log() or Log::channel(\'superlog\')->info()');
+            $this->line('');
+            $this->line('See: INTEGRATION_CHECKLIST.md for detailed instructions');
+        } elseif ($superlogEntries > 0) {
+            $this->newLine();
+            $this->info('✅ APPLICATION INTEGRATION SUCCESSFUL');
+            $this->line('Your middleware is correctly using the superlog channel!');
         }
     }
 }
