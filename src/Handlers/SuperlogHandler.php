@@ -62,7 +62,7 @@ class SuperlogHandler extends AbstractProcessingHandler
             
             // Write to stream handler if available
             if ($this->streamHandler) {
-                $this->streamHandler->write(
+                $this->streamHandler->handle(
                     new LogRecord(
                         $record->datetime,
                         $record->channel,

@@ -78,7 +78,9 @@ class SuperlogCheckCommand extends Command
 
         // Check 8: Run diagnostics (optional)
         if ($this->option('diagnostics')) {
-            $this->runDiagnostics();
+            if (!$this->runDiagnostics()) {
+                $allGood = false;
+            }
             $this->newLine();
         }
 
@@ -240,14 +242,18 @@ class SuperlogCheckCommand extends Command
             return false;
         }
 
-        if (!File::isWritable($logPath)) {
+        // Test actual write capability rather than relying on File::isWritable
+        $testFile = $logPath . '/.writable-test-' . uniqid();
+        try {
+            File::put($testFile, 'test');
+            File::delete($testFile);
+            $this->line('<fg=green>✓</> Directory is writable: ' . $logPath);
+            return true;
+        } catch (\Exception $e) {
             $this->line('<fg=red>✗</> Directory is not writable: ' . $logPath);
-            $this->line('  Try: <fg=yellow>chmod 775 ' . $logPath . '</>');
+            $this->line('  Error: ' . $e->getMessage());
             return false;
         }
-
-        $this->line('<fg=green>✓</> Directory is writable: ' . $logPath);
-        return true;
     }
 
     /**
@@ -297,7 +303,7 @@ class SuperlogCheckCommand extends Command
     /**
      * Run diagnostic tests on Superlog functionality
      */
-    protected function runDiagnostics(): void
+    protected function runDiagnostics(): bool
     {
         $this->line('<fg=cyan>🧪 Running Diagnostic Tests...</>');
         $this->newLine();
@@ -306,10 +312,11 @@ class SuperlogCheckCommand extends Command
             $config = config('superlog');
             if (!$config) {
                 $this->error('✗ Superlog config not found');
-                return;
+                return false;
             }
 
             $logger = new StructuredLogger($config);
+            $allTestsPassed = true;
 
             // Test 1: Trace ID generation
             $this->output->write('Test 1: Trace ID generation... ');
@@ -320,7 +327,7 @@ class SuperlogCheckCommand extends Command
                 $this->line('<fg=green>✓</> Trace ID: ' . $entry['trace_id']);
             } else {
                 $this->line('<fg=red>✗</> Failed to set trace ID');
-                return;
+                $allTestsPassed = false;
             }
 
             // Test 2: Request sequence number
@@ -337,7 +344,7 @@ class SuperlogCheckCommand extends Command
                 $this->line('<fg=green>✓</> Sequence: ' . $entry1['req_seq'] . ' → ' . $entry2['req_seq'] . ' → ' . $entry3['req_seq']);
             } else {
                 $this->line('<fg=red>✗</> Failed: got ' . $entry1['req_seq'] . ', ' . $entry2['req_seq'] . ', ' . $entry3['req_seq']);
-                return;
+                $allTestsPassed = false;
             }
 
             // Test 3: Text formatting with trace_id and req_seq
@@ -353,7 +360,7 @@ class SuperlogCheckCommand extends Command
             } else {
                 $this->line('<fg=red>✗</> Format missing trace_id:req_seq');
                 $this->line('     Got: ' . substr($formatted, 0, 100));
-                return;
+                $allTestsPassed = false;
             }
 
             // Test 4: JSON format
@@ -371,6 +378,7 @@ class SuperlogCheckCommand extends Command
                     $this->line('<fg=green>✓</> JSON includes trace_id and req_seq');
                 } else {
                     $this->line('<fg=red>✗</> JSON format invalid');
+                    $allTestsPassed = false;
                 }
             }
 
@@ -386,6 +394,7 @@ class SuperlogCheckCommand extends Command
                 $this->line('<fg=green>✓</> Different requests have different trace IDs');
             } else {
                 $this->line('<fg=red>✗</> Trace IDs should differ between requests');
+                $allTestsPassed = false;
             }
 
             // Test 6: Sequence resets per request
@@ -397,25 +406,33 @@ class SuperlogCheckCommand extends Command
                 $this->line('<fg=green>✓</> Sequence resets to 0000000001 per request');
             } else {
                 $this->line('<fg=red>✗</> Sequence should reset (got ' . $entry['req_seq'] . ')');
+                $allTestsPassed = false;
             }
 
-            $this->newLine();
-            $this->info('✅ Unit tests passed! Superlog package works correctly.');
+            if ($allTestsPassed) {
+                $this->newLine();
+                $this->info('✅ Unit tests passed! Superlog package works correctly.');
+            }
             
             // Now check actual application logs
             $this->newLine();
             $this->line('<fg=cyan>🔍 Checking actual application logs...</>');
-            $this->checkActualLogs();
+            if (!$this->checkActualLogs()) {
+                $allTestsPassed = false;
+            }
+
+            return $allTestsPassed;
 
         } catch (\Exception $e) {
             $this->error('✗ Diagnostic error: ' . $e->getMessage());
+            return false;
         }
     }
 
     /**
      * Check if actual application logs are using Superlog
      */
-    protected function checkActualLogs(): void
+    protected function checkActualLogs(): bool
     {
         $this->newLine();
         $this->output->write('Test 7: Writing actual test entry to superlog channel... ');
@@ -424,17 +441,18 @@ class SuperlogCheckCommand extends Command
         $logPath = storage_path('logs/laravel-' . now()->format('Y-m-d') . '.log');
         $fileSizeBefore = File::exists($logPath) ? filesize($logPath) : 0;
         
-        // Generate unique marker for this test
-        $testMarker = 'SUPERLOG_TEST_' . uniqid('', true);
         $testTraceId = 'diagnostic-trace-' . uniqid();
+        $testMessage = 'Superlog Diagnostic Test ' . uniqid();
         
         try {
+            // Initialize request context for console command
+            $logger = app()->make(StructuredLogger::class);
+            $logger->initializeRequest('GET', '/artisan', '127.0.0.1', $testTraceId);
+            
             // Write a test entry to the superlog channel
-            Log::channel('superlog')->info('🧪 Superlog Diagnostic Test', [
-                'test_marker' => $testMarker,
+            Log::channel('superlog')->info($testMessage, [
                 'test_type' => 'DIAGNOSTICS',
                 'timestamp' => now()->toIso8601String(),
-                'session_test' => 'session_data_test',
             ]);
             
             // Give the logger a moment to write
@@ -445,16 +463,16 @@ class SuperlogCheckCommand extends Command
                 $this->line('<fg=red>✗</>');
                 $this->newLine();
                 $this->error('❌ Log file was not created');
-                return;
+                return false;
             }
             
             $content = File::get($logPath);
             $lines = explode("\n", $content);
             
-            // Search for our test entry
+            // Search for our test entry - look for both the trace ID and the unique message
             $testEntryFound = null;
             foreach (array_reverse($lines) as $line) {
-                if (strpos($line, $testMarker) !== false) {
+                if (strpos($line, $testTraceId) !== false && strpos($line, 'Superlog Diagnostic Test') !== false) {
                     $testEntryFound = $line;
                     break;
                 }
@@ -467,16 +485,16 @@ class SuperlogCheckCommand extends Command
                 $this->line('');
                 $this->line('This means Superlog is NOT writing to the log file.');
                 $this->line('Check that your logging.php has the superlog channel configured.');
-                return;
+                return false;
             }
             
             // Verify the test entry has proper formatting
             $hasChannel = strpos($testEntryFound, 'superlog.') !== false;
             $hasTraceId = preg_match('/\[[\w\-]+:\d{10}\]/', $testEntryFound) !== false;
-            $hasTestMarker = strpos($testEntryFound, $testMarker) !== false;
+            $hasMessage = strpos($testEntryFound, 'Superlog Diagnostic Test') !== false;
             $hasTimestamp = preg_match('/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/', $testEntryFound) !== false;
             
-            if ($hasChannel && $hasTraceId && $hasTestMarker && $hasTimestamp) {
+            if ($hasChannel && $hasTraceId && $hasMessage && $hasTimestamp) {
                 $this->line('<fg=green>✓</>');
                 $this->newLine();
                 $this->info('✅ Test entry successfully written and verified!');
@@ -488,10 +506,11 @@ class SuperlogCheckCommand extends Command
                 $this->line('  Channel: ' . ($hasChannel ? '<fg=green>✓ superlog</>' : '<fg=red>✗ NOT superlog</>'));
                 $this->line('  Timestamp: ' . ($hasTimestamp ? '<fg=green>✓ ISO8601</>' : '<fg=red>✗ Invalid</>'));
                 $this->line('  Trace ID + Seq: ' . ($hasTraceId ? '<fg=green>✓ [id:seq] found</>' : '<fg=red>✗ Missing</>'));
-                $this->line('  Data preserved: ' . ($hasTestMarker ? '<fg=green>✓ Yes</>' : '<fg=red>✗ No</>'));
+                $this->line('  Message preserved: ' . ($hasMessage ? '<fg=green>✓ Yes</>' : '<fg=red>✗ No</>'));
                 $this->newLine();
                 $this->info('✅ APPLICATION INTEGRATION SUCCESSFUL');
                 $this->line('Your Superlog is properly configured and working!');
+                return true;
             } else {
                 $this->line('<fg=red>✗</>');
                 $this->newLine();
@@ -507,7 +526,7 @@ class SuperlogCheckCommand extends Command
                 $this->line('  Channel: ' . ($hasChannel ? '<fg=green>✓</>' : '<fg=red>✗</>'));
                 $this->line('  Timestamp: ' . ($hasTimestamp ? '<fg=green>✓</>' : '<fg=red>✗</>'));
                 $this->line('  Trace ID + Seq: ' . ($hasTraceId ? '<fg=green>✓</>' : '<fg=red>✗</>'));
-                $this->line('  Data: ' . ($hasTestMarker ? '<fg=green>✓</>' : '<fg=red>✗</>'));
+                $this->line('  Message: ' . ($hasMessage ? '<fg=green>✓</>' : '<fg=red>✗</>'));
                 
                 // Check if log is going to local channel instead
                 if (strpos($testEntryFound, 'local.') !== false) {
@@ -537,6 +556,7 @@ class SuperlogCheckCommand extends Command
                     $this->line('<fg=cyan>Creating automatic fix script...</>');
                     $this->createMiddlewareFixScript();
                 }
+                return false;
             }
             
         } catch (\Exception $e) {
@@ -549,6 +569,7 @@ class SuperlogCheckCommand extends Command
             $this->line('      \'driver\' => \'superlog\',');
             $this->line('      ...');
             $this->line('  ]');
+            return false;
         }
     }
 
