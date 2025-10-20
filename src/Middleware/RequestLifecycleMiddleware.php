@@ -34,6 +34,9 @@ class RequestLifecycleMiddleware
             $traceId
         );
 
+        // Log blank line separator
+        $this->logSeparator();
+
         // Log startup
         $this->logStartup($request);
 
@@ -45,8 +48,17 @@ class RequestLifecycleMiddleware
             return $response;
         } finally {
             // Log shutdown
-            $this->logShutdown($timer->elapsed());
+            $this->logShutdown($timer->elapsed(), $response ?? null);
         }
+    }
+
+    /**
+     * Log a blank line separator
+     */
+    protected function logSeparator(): void
+    {
+        $logChannel = $this->logger->getLogChannel() ?? 'superlog';
+        \Illuminate\Support\Facades\Log::channel($logChannel)->info('');
     }
 
     /**
@@ -73,12 +85,33 @@ class RequestLifecycleMiddleware
     /**
      * Log request shutdown
      */
-    protected function logShutdown(float $durationMs): void
+    protected function logShutdown(float $durationMs, $response = null): void
     {
+        $responseStatus = 0;
+        $responseBytes = 0;
+
+        // Try to get response status and bytes from the response object
+        if ($response !== null) {
+            if (method_exists($response, 'getStatusCode')) {
+                $responseStatus = $response->getStatusCode();
+            }
+            if (method_exists($response, 'getContent')) {
+                $responseBytes = strlen($response->getContent());
+            }
+        }
+
+        // Fallback to http_response_code() and ob_get_length() if response object not available
+        if ($responseStatus === 0) {
+            $responseStatus = http_response_code() ?: 0;
+        }
+        if ($responseBytes === 0) {
+            $responseBytes = ob_get_level() > 0 ? ob_get_length() ?: 0 : 0;
+        }
+
         $shutdownData = [
             'request_ms' => $durationMs,
-            'response_status' => http_response_code(),
-            'response_bytes' => ob_get_level() > 0 ? ob_get_length() : 0,
+            'response_status' => $responseStatus,
+            'response_bytes' => $responseBytes,
             'queue_jobs_dispatched' => $this->countQueueJobsDispatched(),
         ];
 

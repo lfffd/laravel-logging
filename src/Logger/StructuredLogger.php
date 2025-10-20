@@ -41,7 +41,7 @@ class StructuredLogger
         $this->correlation->setMethod($method);
         $this->correlation->setPath($path);
         $this->correlation->setClientIp($ip);
-        $this->sequenceCounter = 0;
+        $this->sequenceCounter++;  // Increment once per request, not per log entry
         $this->sections = [];
     }
 
@@ -59,7 +59,6 @@ class StructuredLogger
             return [];
         }
 
-        $this->sequenceCounter++;
         $requestSeq = str_pad((string) $this->sequenceCounter, 10, '0', STR_PAD_LEFT);
 
         $spanId = $this->correlation->getOrCreateSpanId($section);
@@ -269,6 +268,14 @@ class StructuredLogger
     public function getCorrelation(): CorrelationContext
     {
         return $this->correlation;
+    }
+
+    /**
+     * Get the log channel
+     */
+    public function getLogChannel(): ?string
+    {
+        return $this->logChannel;
     }
 
     /**
