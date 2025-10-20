@@ -40,6 +40,31 @@ An enterprise-grade structured logging package for Laravel with built-in correla
 
 ## Installation
 
+### From GitHub (Before Packagist Publication)
+
+1. **Add the repository to your `composer.json`**:
+   ```json
+   {
+     "repositories": [
+       {
+         "type": "vcs",
+         "url": "https://github.com/lfffd/laravel-logging.git"
+       }
+     ],
+     "require": {
+       "lfffd/laravel-logging": "dev-main"
+     }
+   }
+   ```
+
+2. **Or run via command line**:
+   ```bash
+   composer config repositories.superlog vcs https://github.com/lfffd/laravel-logging.git
+   composer require lfffd/laravel-logging:dev-main
+   ```
+
+### From Packagist (After Publication)
+
 ```bash
 composer require lfffd/laravel-logging
 ```

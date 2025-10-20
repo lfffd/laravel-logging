@@ -34,9 +34,9 @@ class SuperlogServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        $this->publishesConfig([
+        $this->publishes([
             __DIR__ . '/../config/superlog.php' => config_path('superlog.php'),
-        ]);
+        ], 'config');
 
         $this->registerMonologHandler();
         $this->registerMiddleware();
