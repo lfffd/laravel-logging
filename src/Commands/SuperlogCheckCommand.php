@@ -424,6 +424,35 @@ class SuperlogCheckCommand extends Command
                 $this->line('  Timestamp: ' . ($hasTimestamp ? '<fg=green>✓</>' : '<fg=red>✗</>'));
                 $this->line('  Trace ID + Seq: ' . ($hasTraceId ? '<fg=green>✓</>' : '<fg=red>✗</>'));
                 $this->line('  Data: ' . ($hasTestMarker ? '<fg=green>✓</>' : '<fg=red>✗</>'));
+                
+                // Check if log is going to local channel instead
+                if (strpos($testEntryFound, 'local.') !== false) {
+                    $this->newLine();
+                    $this->error('❌ ISSUE DETECTED: Logs are going to "local" channel instead of "superlog"');
+                    $this->newLine();
+                    $this->line('This typically means:');
+                    $this->line('  1. Your middleware is using Log::info() instead of Superlog::log()');
+                    $this->line('  2. Or your logging.php "stack" includes "local" before "superlog"');
+                    $this->newLine();
+                    $this->line('🔧 TO FIX:');
+                    $this->newLine();
+                    $this->line('<fg=yellow>Option A: Update config/logging.php (Recommended)</>');
+                    $this->line('Make sure the "superlog" channel is used as the primary channel:');
+                    $this->line('');
+                    $this->line('  \'default\' => env(\'LOG_CHANNEL\', \'superlog\'),');
+                    $this->newLine();
+                    $this->line('<fg=yellow>Option B: Update your middleware (if applicable)</>');
+                    $this->line('Change from:');
+                    $this->line('  use Illuminate\\Support\\Facades\\Log;');
+                    $this->line('  Log::info(\'Message\', $data);');
+                    $this->line('');
+                    $this->line('To:');
+                    $this->line('  use Superlog\\Facades\\Superlog;');
+                    $this->line('  Superlog::log(\'info\', \'SECTION\', \'Message\', $data);');
+                    $this->newLine();
+                    $this->line('<fg=cyan>Creating automatic fix script...</>');
+                    $this->createMiddlewareFixScript();
+                }
             }
             
         } catch (\Exception $e) {
@@ -437,5 +466,80 @@ class SuperlogCheckCommand extends Command
             $this->line('      ...');
             $this->line('  ]');
         }
+    }
+
+    /**
+     * Create a fix script to update logging configuration
+     */
+    protected function createMiddlewareFixScript(): void
+    {
+        $loggingConfigPath = config_path('logging.php');
+        
+        if (!File::exists($loggingConfigPath)) {
+            $this->warn('⚠️  Could not find config/logging.php');
+            return;
+        }
+
+        $content = File::get($loggingConfigPath);
+        
+        // Check current default channel
+        if (preg_match('/\'default\'\s*=>\s*env\([\'"]LOG_CHANNEL[\'"],\s*[\'"]([^\'"]+)[\'"]\)/', $content, $matches)) {
+            $currentChannel = $matches[1];
+            
+            if ($currentChannel === 'superlog') {
+                $this->newLine();
+                $this->line('<fg=cyan>✓ Logging is already configured to use superlog channel</>');
+                $this->newLine();
+                $this->line('But the test entry went to "local" channel.');
+                $this->line('This suggests your middleware or services are using:');
+                $this->line('  Log::channel(\'local\')->info(...)');
+                $this->line('');
+                $this->line('Search your code for:');
+                $this->line('  grep -r "Log::channel\(\'local\'\)" app/');
+                $this->line('  grep -r "Log::channel\(\"local\"\)" app/');
+                return;
+            }
+            
+            // Offer to fix
+            $this->newLine();
+            $this->line('Current LOG_CHANNEL setting: <fg=yellow>' . $currentChannel . '</>');
+            $this->newLine();
+            
+            if ($this->confirm('Would you like me to update config/logging.php to use superlog as the default channel?', true)) {
+                $newContent = preg_replace(
+                    '/\'default\'\s*=>\s*env\([\'"]LOG_CHANNEL[\'"],\s*[\'"]([^\'"]+)[\'"]\)/',
+                    '\'default\' => env(\'LOG_CHANNEL\', \'superlog\')',
+                    $content
+                );
+                
+                if ($newContent !== $content) {
+                    File::put($loggingConfigPath, $newContent);
+                    $this->newLine();
+                    $this->info('✅ Updated config/logging.php');
+                    $this->line('   Changed default channel to "superlog"');
+                    $this->newLine();
+                    $this->line('Also update your .env file:');
+                    $this->line('  <fg=yellow>LOG_CHANNEL=superlog</>');
+                    $this->newLine();
+                    $this->info('Then run: <fg=cyan>php artisan cache:clear</>');
+                } else {
+                    $this->warn('⚠️  Could not update the file');
+                }
+            }
+        } else {
+            // Show current config and offer manual fix
+            $this->newLine();
+            $this->line('Could not automatically update config. Manual steps:');
+            $this->newLine();
+            $this->line('1. Open config/logging.php');
+            $this->line('2. Find the \'default\' => line and change to:');
+            $this->line('   <fg=yellow>\'default\' => env(\'LOG_CHANNEL\', \'superlog\'),</>');
+            $this->line('3. Update .env: <fg=yellow>LOG_CHANNEL=superlog</>');
+            $this->line('4. Run: <fg=cyan>php artisan cache:clear</>');
+        }
+        
+        $this->newLine();
+        $this->line('🔄 After fixing, run the diagnostic again:');
+        $this->line('  <fg=cyan>php artisan superlog:check --diagnostics</>');
     }
 }
