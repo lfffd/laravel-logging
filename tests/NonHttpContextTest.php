@@ -25,13 +25,13 @@ class NonHttpContextTest extends TestCase
     /** @test */
     public function it_generates_trace_id_for_cli_context()
     {
-        // Since PHPUnit runs in CLI, this should automatically get a CLI trace ID
+        // Since PHPUnit runs in CLI, this should automatically get a temporary trace ID
         $correlation = app(CorrelationContext::class);
         
         $traceId = $correlation->getTraceId();
         
         $this->assertNotNull($traceId);
-        $this->assertStringStartsWith('cli_', $traceId);
+        $this->assertStringStartsWith('tmp/', $traceId);
     }
 
     /** @test */
@@ -41,7 +41,7 @@ class NonHttpContextTest extends TestCase
         $logEntry = Superlog::log('info', 'TEST', 'Test message in CLI context');
         
         $this->assertArrayHasKey('trace_id', $logEntry);
-        $this->assertStringStartsWith('cli_', $logEntry['trace_id']);
+        $this->assertStringStartsWith('tmp/', $logEntry['trace_id']);
     }
 
     /** @test */
@@ -87,5 +87,65 @@ class NonHttpContextTest extends TestCase
         
         // Check that the trace ID is in the formatted output
         $this->assertStringContainsString($logEntry['trace_id'], $formatted);
+    }
+    
+    /** @test */
+    public function it_maintains_consistent_trace_id_across_different_instances()
+    {
+        // Get the correlation context from the container
+        $correlation1 = app(CorrelationContext::class);
+        $traceId1 = $correlation1->getTraceId();
+        
+        // Get another instance from the container
+        $correlation2 = app(CorrelationContext::class);
+        $traceId2 = $correlation2->getTraceId();
+        
+        // Both should have the same trace ID (singleton)
+        $this->assertEquals($traceId1, $traceId2);
+        
+        // Create a log entry
+        $logEntry = Superlog::log('info', 'TEST', 'Test message for consistency check');
+        
+        // The log entry should have the same trace ID
+        $this->assertEquals($traceId1, $logEntry['trace_id']);
+        
+        // Get the trace ID from the logger
+        $logger = app('Superlog\Logger\StructuredLogger');
+        $traceId3 = $logger->getCorrelation()->getTraceId();
+        
+        // It should be the same as the others
+        $this->assertEquals($traceId1, $traceId3);
+    }
+    
+    /** @test */
+    public function it_updates_trace_id_when_permanent_id_is_set()
+    {
+        // Get the correlation context from the container (singleton)
+        $correlation = app(CorrelationContext::class);
+        
+        // Get the initial temporary trace ID
+        $tempTraceId = $correlation->getTraceId();
+        $this->assertStringStartsWith('tmp/', $tempTraceId);
+        
+        // Create a log with the temporary ID
+        $logEntry1 = Superlog::log('info', 'TEST', 'Test message with temporary ID');
+        $this->assertEquals($tempTraceId, $logEntry1['trace_id']);
+        
+        // Set a permanent trace ID
+        $permanentTraceId = 'permanent_' . \Illuminate\Support\Str::uuid()->toString();
+        $correlation->setTraceId($permanentTraceId);
+        
+        // Create another log - should use the permanent ID
+        $logEntry2 = Superlog::log('info', 'TEST', 'Test message with permanent ID');
+        $this->assertEquals($permanentTraceId, $logEntry2['trace_id']);
+        
+        // All subsequent logs should use the permanent ID
+        $logEntry3 = Superlog::log('info', 'TEST', 'Another test message');
+        $this->assertEquals($permanentTraceId, $logEntry3['trace_id']);
+        
+        // Get a new instance of the correlation context from the container
+        // It should have the same trace ID (singleton)
+        $newCorrelation = app(CorrelationContext::class);
+        $this->assertEquals($permanentTraceId, $newCorrelation->getTraceId());
     }
 }

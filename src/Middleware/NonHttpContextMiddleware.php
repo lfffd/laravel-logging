@@ -36,25 +36,28 @@ class NonHttpContextMiddleware
      */
     protected function initializeNonHttpContext()
     {
-        // Create a correlation context if it doesn't exist
-        if (!app()->has(CorrelationContext::class)) {
-            $correlation = new CorrelationContext();
-            app()->instance(CorrelationContext::class, $correlation);
-        } else {
-            $correlation = app()->make(CorrelationContext::class);
-        }
+        // Get the existing correlation context (already registered as a singleton)
+        $correlation = app()->make(CorrelationContext::class);
         
-        // Generate a trace ID if one doesn't exist
+        // The trace ID should already be set in the register method of SuperlogServiceProvider
+        // But we'll check just in case
         if (!$correlation->getTraceId()) {
-            // Generate a trace ID with a prefix to identify the context type
-            $prefix = app()->runningInConsole() ? 'cli' : 'job';
-            $traceId = $prefix . '_' . Str::uuid()->toString();
+            // Generate a temporary trace ID until we can get the real one from the session
+            $traceId = 'tmp/' . Str::uuid()->toString();
             $correlation->setTraceId($traceId);
         }
         
-        // Set some basic context information
-        $correlation->setMethod('CLI');
-        $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
-        $correlation->setClientIp('127.0.0.1');
+        // Update context information if needed
+        if ($correlation->getMethod() === 'UNKNOWN') {
+            $correlation->setMethod('CLI');
+        }
+        
+        if ($correlation->getPath() === '/') {
+            $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
+        }
+        
+        if ($correlation->getClientIp() === 'UNKNOWN') {
+            $correlation->setClientIp('127.0.0.1');
+        }
     }
 }

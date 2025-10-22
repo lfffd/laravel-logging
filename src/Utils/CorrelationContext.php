@@ -6,7 +6,10 @@ use Ramsey\Uuid\Uuid;
 
 class CorrelationContext
 {
-    protected string $traceId;
+    // Static trace ID to ensure consistency across the application
+    protected static ?string $staticTraceId = null;
+    protected static ?string $tempTraceId = null;
+    
     protected string $method;
     protected string $path;
     protected string $clientIp;
@@ -23,7 +26,19 @@ class CorrelationContext
      */
     public function setTraceId(string $traceId): self
     {
-        $this->traceId = $traceId;
+        // If this is a temporary ID (prefixed with tmp/), store it separately
+        if (strpos($traceId, 'tmp/') === 0) {
+            self::$tempTraceId = $traceId;
+        } else {
+            self::$staticTraceId = $traceId;
+            
+            // If we had a temporary ID before, log the transition
+            if (self::$tempTraceId) {
+                \Log::info("Session identification from " . self::$tempTraceId);
+                self::$tempTraceId = null;
+            }
+        }
+        
         return $this;
     }
 
@@ -32,10 +47,19 @@ class CorrelationContext
      */
     public function getTraceId(): string
     {
-        if (!isset($this->traceId)) {
-            $this->traceId = Uuid::uuid4()->toString();
+        // If we have a permanent trace ID, use it
+        if (self::$staticTraceId) {
+            return self::$staticTraceId;
         }
-        return $this->traceId;
+        
+        // If we have a temporary trace ID, use it
+        if (self::$tempTraceId) {
+            return self::$tempTraceId;
+        }
+        
+        // Generate a new temporary trace ID
+        self::$tempTraceId = 'tmp/' . Uuid::uuid4()->toString();
+        return self::$tempTraceId;
     }
 
     /**

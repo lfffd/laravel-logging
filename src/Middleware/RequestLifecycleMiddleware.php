@@ -26,6 +26,11 @@ class RequestLifecycleMiddleware
         $traceId = $request->header(config('superlog.trace_id_header', 'X-Trace-Id'))
             ?? request()->header('X-Trace-Id');
 
+        // If no trace ID is provided, generate a permanent one
+        if (empty($traceId)) {
+            $traceId = \Illuminate\Support\Str::uuid()->toString();
+        }
+
         // Initialize request context
         $this->logger->initializeRequest(
             $request->method(),
@@ -66,6 +71,25 @@ class RequestLifecycleMiddleware
      */
     protected function logStartup(Request $request): void
     {
+        // Get session ID if available
+        $sessionId = session()->getId() ?? null;
+        
+        // If we have a session ID, update the trace ID to a permanent one
+        if ($sessionId) {
+            // Get the correlation context from the container (singleton)
+            $correlation = app()->make('Superlog\Utils\CorrelationContext');
+            $currentTraceId = $correlation->getTraceId();
+            
+            // If the current trace ID is temporary, replace it with a permanent one
+            if (strpos($currentTraceId, 'tmp/') === 0) {
+                $permanentTraceId = \Illuminate\Support\Str::uuid()->toString();
+                $correlation->setTraceId($permanentTraceId);
+                
+                // Log the transition
+                $this->logger->log('info', 'GENERAL', "Session identification from {$currentTraceId}");
+            }
+        }
+        
         $startupData = [
             'method' => $request->method(),
             'path' => $request->path(),
@@ -75,7 +99,7 @@ class RequestLifecycleMiddleware
             'query_string' => $request->getQueryString(),
             'user_id' => auth()->id() ?? null,
             'tenant_id' => $this->getTenantId() ?? null,
-            'session_id' => session()->getId() ?? null,
+            'session_id' => $sessionId,
             'payload' => $request->getContent(),
         ];
 

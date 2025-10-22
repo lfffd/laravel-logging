@@ -34,22 +34,16 @@ class SuperlogHandler extends AbstractProcessingHandler
         
         // If we're in a non-HTTP context and non-HTTP context logging is enabled
         if ($isNonHttpContext && config('superlog.non_http_context.enabled', true)) {
-            // Create a correlation context if it doesn't exist
+            // The correlation context should already be registered as a singleton in SuperlogServiceProvider
+            // But we'll check just in case
             if (!app()->has('Superlog\Utils\CorrelationContext')) {
+                // This should never happen, but just in case
                 $correlation = new \Superlog\Utils\CorrelationContext();
-                
-                // Generate a trace ID with optional prefix
-                $traceId = \Ramsey\Uuid\Uuid::uuid4()->toString();
-                if (config('superlog.non_http_context.prefix_trace_id', true)) {
-                    $prefix = app()->runningInConsole() ? 'cli_' : 'job_';
-                    $traceId = $prefix . $traceId;
-                }
-                
+                $traceId = 'tmp/' . \Ramsey\Uuid\Uuid::uuid4()->toString();
                 $correlation->setTraceId($traceId);
                 $correlation->setMethod('CLI');
                 $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
                 $correlation->setClientIp('127.0.0.1');
-                
                 app()->instance('Superlog\Utils\CorrelationContext', $correlation);
             }
         }

@@ -22,7 +22,15 @@ class StructuredLogger
     public function __construct(array $config, ?string $logChannel = null)
     {
         $this->config = $config;
-        $this->correlation = new CorrelationContext();
+        
+        // Use the existing CorrelationContext instance from the container
+        if (app()->has(CorrelationContext::class)) {
+            $this->correlation = app()->make(CorrelationContext::class);
+        } else {
+            // Fallback to a new instance if not registered (should never happen)
+            $this->correlation = new CorrelationContext();
+        }
+        
         $this->redactor = new RedactionProcessor($config['redaction']);
         $this->payloadProcessor = new PayloadProcessor($config['payload_handling']);
         $this->logChannel = $logChannel ?? 'superlog';
@@ -33,11 +41,16 @@ class StructuredLogger
      */
     public function initializeRequest(string $method, string $path, string $ip, ?string $traceId = null): void
     {
-        if (!$traceId) {
+        // If a trace ID is provided and it's not a temporary ID, use it
+        if ($traceId && strpos($traceId, 'tmp/') !== 0) {
+            $this->correlation->setTraceId($traceId);
+        } else if (!$traceId) {
+            // If no trace ID is provided, generate a permanent one
             $traceId = Uuid::uuid4()->toString();
+            $this->correlation->setTraceId($traceId);
         }
+        // If it's a temporary ID, we keep it until a permanent one is set
 
-        $this->correlation->setTraceId($traceId);
         $this->correlation->setMethod($method);
         $this->correlation->setPath($path);
         $this->correlation->setClientIp($ip);
@@ -278,6 +291,12 @@ class StructuredLogger
      */
     public function getCorrelation(): CorrelationContext
     {
+        // Always return the singleton instance from the container
+        if (app()->has(CorrelationContext::class)) {
+            return app()->make(CorrelationContext::class);
+        }
+        
+        // Fallback to the instance we have (should never happen)
         return $this->correlation;
     }
 
@@ -325,8 +344,8 @@ class StructuredLogger
                 $correlation = app()->make('Superlog\Utils\CorrelationContext');
                 $traceId = $correlation->getTraceId();
             } else {
-                // Generate a new UUID
-                $traceId = \Ramsey\Uuid\Uuid::uuid4()->toString();
+                // Generate a new temporary UUID
+                $traceId = 'tmp/' . \Ramsey\Uuid\Uuid::uuid4()->toString();
             }
         }
         

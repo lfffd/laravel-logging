@@ -9,6 +9,8 @@ An enterprise-grade structured logging package for Laravel with built-in correla
 - **req_seq** (fixed-width 10 chars): Incremental ID per log line within a request
 - **span_id**: Per-section correlation (startup, middleware, db, http, shutdown)
 - **Non-HTTP context support**: Automatic trace ID generation for CLI commands, queue jobs, and webhooks
+- **Temporary trace IDs**: Uses temporary IDs (prefixed with `tmp/`) until a permanent ID can be established, ensuring consistent correlation even before session initialization
+- **Consistent correlation**: Maintains the same trace ID across all logs in a request, even in complex middleware stacks and webhooks
 
 ### 📊 Sections with Timing & Resources
 - **[STARTUP]**: Route, HTTP verb, IP, user/tenant, session ID, payload sizes, user-agent
@@ -118,6 +120,13 @@ See `config/superlog.php` for all available options:
     'generate_trace_id' => true,
     'prefix_trace_id' => true, // Adds 'cli_', 'job_', etc. prefix to trace IDs
 ],
+```
+
+### Temporary Trace IDs
+```php
+// Temporary trace IDs are automatically used before a permanent ID is established
+// They are prefixed with 'tmp/' and are replaced with permanent IDs when available
+// This ensures consistent correlation even before session initialization
 ```
 
 ### Sampling
@@ -237,6 +246,12 @@ echo $correlation->getDurationMs(); // Request duration
 
 // Initialize custom trace (e.g., in queue jobs)
 Superlog::initializeRequest('QUEUE', 'process_order', '127.0.0.1', 'custom-trace-id');
+
+// Set a permanent trace ID (replaces any temporary ID)
+$correlation->setTraceId('permanent-trace-id');
+
+// Check if the current trace ID is temporary
+$isTemporary = strpos($correlation->getTraceId(), 'tmp/') === 0;
 ```
 
 ### Integration with Laravel Features

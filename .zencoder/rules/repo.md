@@ -55,6 +55,9 @@ php artisan vendor:publish --provider="Superlog\SuperlogServiceProvider"
 
 ## Key Features
 - **Correlation Tracking**: UUID-based trace IDs and sequential request IDs
+- **Temporary Trace IDs**: Uses temporary IDs (prefixed with `tmp/`) until permanent IDs are established
+- **Non-HTTP Context Support**: Automatic trace ID generation for CLI commands, queue jobs, and webhooks
+- **Consistent Correlation**: Maintains the same trace ID across all logs in a request, even in complex middleware stacks and webhooks
 - **Structured Sections**: Startup, middleware, database, HTTP outbound, cache, shutdown
 - **PII Redaction**: Automatic masking of sensitive data (passwords, tokens, PII)
 - **Performance Diagnostics**: Request timing, slow query detection, memory usage
@@ -63,6 +66,9 @@ php artisan vendor:publish --provider="Superlog\SuperlogServiceProvider"
 
 ## Integration
 **Service Provider**: Superlog\SuperlogServiceProvider
-**Middleware**: Superlog\Middleware\RequestLifecycleMiddleware
+**Middleware**: 
+- Superlog\Middleware\RequestLifecycleMiddleware - Handles HTTP requests
+- Superlog\Middleware\NonHttpContextMiddleware - Handles CLI, queue jobs, and webhooks
 **Facade**: Superlog\Facades\Superlog
 **Configuration**: config/superlog.php
+**Correlation Context**: Superlog\Utils\CorrelationContext - Manages trace IDs and request context

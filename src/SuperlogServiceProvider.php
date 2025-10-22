@@ -23,6 +23,28 @@ class SuperlogServiceProvider extends ServiceProvider
             'superlog'
         );
 
+        // Register CorrelationContext as a singleton for all contexts
+        $this->app->singleton(CorrelationContext::class, function ($app) {
+            $correlation = new CorrelationContext();
+            
+            // Generate a temporary trace ID
+            $traceId = 'tmp/' . \Illuminate\Support\Str::uuid()->toString();
+            $correlation->setTraceId($traceId);
+            
+            // Set default values
+            if ($app->runningInConsole()) {
+                $correlation->setMethod('CLI');
+                $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
+            } else {
+                $correlation->setMethod($_SERVER['REQUEST_METHOD'] ?? 'UNKNOWN');
+                $correlation->setPath($_SERVER['REQUEST_URI'] ?? '/');
+            }
+            
+            $correlation->setClientIp($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
+            
+            return $correlation;
+        });
+
         $this->app->singleton(StructuredLogger::class, function ($app) {
             return new StructuredLogger($app['config']['superlog']);
         });
@@ -100,16 +122,7 @@ class SuperlogServiceProvider extends ServiceProvider
             
             // Add the non-HTTP context middleware to the global middleware stack
             // This ensures it runs for all requests, including non-HTTP contexts
-            if ($this->app->runningInConsole()) {
-                $this->app->singleton(CorrelationContext::class, function ($app) {
-                    $correlation = new CorrelationContext();
-                    $correlation->setTraceId('cli_' . \Illuminate\Support\Str::uuid()->toString());
-                    $correlation->setMethod('CLI');
-                    $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
-                    $correlation->setClientIp('127.0.0.1');
-                    return $correlation;
-                });
-            }
+            // CorrelationContext is already registered as a singleton in the register method
         }
     }
     
