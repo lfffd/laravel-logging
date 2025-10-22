@@ -23,27 +23,27 @@
 
 // Example 1: Basic model operations are automatically logged
 $user = User::find(1);
-// Logs: [MODEL/User/select] with the SQL query, execution time, etc.
+// Logs: [MODEL/User/SELECT] with the SQL query, execution time, etc.
 
 $user->name = 'New Name';
 $user->save();
-// Logs: [MODEL/User/update] with the SQL query, execution time, etc.
+// Logs: [MODEL/User/UPDATE] with the SQL query, execution time, etc.
 
 // Example 2: Bulk operations are also logged
 User::where('status', 'inactive')->delete();
-// Logs: [MODEL/User/delete] with the SQL query, execution time, etc.
+// Logs: [MODEL/User/DELETE] with the SQL query, execution time, etc.
 
 // Example 3: Query builder operations through models are logged
 $activeUsers = User::where('status', 'active')
     ->orderBy('created_at', 'desc')
     ->limit(10)
     ->get();
-// Logs: [MODEL/User/select] with the SQL query, execution time, etc.
+// Logs: [MODEL/User/SELECT] with the SQL query, execution time, etc.
 
 // Example 4: Relationship operations are logged
 $user = User::find(1);
 $posts = $user->posts()->where('published', true)->get();
-// Logs: [MODEL/Post/select] with the SQL query, execution time, etc.
+// Logs: [MODEL/Post/SELECT] with the SQL query, execution time, etc.
 
 // Example 5: Errors are logged at error level
 try {
@@ -52,7 +52,7 @@ try {
         'email' => 'duplicate@example.com', // Assuming this is a duplicate
     ]);
 } catch (\Exception $e) {
-    // The error will be automatically logged with [MODEL/User/insert]
+    // The error will be automatically logged with [MODEL/User/INSERT]
     // at error level with the exception details
 }
 

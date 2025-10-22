@@ -316,8 +316,25 @@ class StructuredLogger
         $level = $entry['level'];
         $section = $entry['section'];
         $message = $entry['message'];
-        $traceId = $entry['trace_id'] ?? 'N/A';
+        
+        // Ensure we have valid trace_id and req_seq
+        $traceId = $entry['trace_id'] ?? null;
+        if (empty($traceId) || $traceId === 'unknown' || $traceId === 'N/A') {
+            // Try to get from correlation context
+            if (app()->has('Superlog\Utils\CorrelationContext')) {
+                $correlation = app()->make('Superlog\Utils\CorrelationContext');
+                $traceId = $correlation->getTraceId();
+            } else {
+                // Generate a new UUID
+                $traceId = \Ramsey\Uuid\Uuid::uuid4()->toString();
+            }
+        }
+        
         $reqSeq = $entry['req_seq'] ?? '0000000000';
+        if (empty($reqSeq) || $reqSeq === '0') {
+            $reqSeq = str_pad((string) $this->sequenceCounter, 10, '0', STR_PAD_LEFT);
+        }
+        
         $context = json_encode($entry['context'] ?? [], JSON_UNESCAPED_SLASHES);
         $metrics = json_encode($entry['metrics'] ?? [], JSON_UNESCAPED_SLASHES);
 

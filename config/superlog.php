@@ -207,6 +207,18 @@ return [
         'include_bindings' => env('SUPERLOG_MODEL_QUERY_INCLUDE_BINDINGS', true),
         'slow_query_threshold_ms' => env('SUPERLOG_MODEL_SLOW_QUERY_MS', 100),
     ],
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Non-HTTP Context Logging
+    |--------------------------------------------------------------------------
+    | Configuration for logging in non-HTTP contexts (CLI, queue jobs, webhooks)
+    */
+    'non_http_context' => [
+        'enabled' => env('SUPERLOG_NON_HTTP_CONTEXT_ENABLED', true),
+        'generate_trace_id' => true,
+        'prefix_trace_id' => true, // Adds 'cli_', 'job_', etc. prefix to trace IDs
+    ],
 
     /*
     |--------------------------------------------------------------------------

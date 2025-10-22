@@ -94,33 +94,46 @@ class ModelQueryProcessor
             $modelContext = null;
         }
         
+        // Determine the SQL verb based on the query itself
+        $sqlVerb = self::determineSqlVerb($sql);
+        
+        // Determine number of affected records
+        $recordCount = 0;
+        
+        // For SELECT queries, we can estimate the number of records from the result
+        if (stripos($sql, 'select') === 0) {
+            // We can't get the exact count without re-running the query
+            // This is just an estimation based on the query structure
+            $recordCount = stripos($sql, 'limit 1') !== false ? 1 : '(multiple)';
+        } 
+        // For other queries, we can often get the count from the query itself
+        else if (stripos($sql, 'insert') === 0) {
+            $recordCount = 1; // Single insert
+            if (stripos($sql, 'insert into') !== false && substr_count($sql, '(') > 1) {
+                // Bulk insert - count the number of value groups
+                $recordCount = substr_count($sql, '),(') + 1;
+            }
+        }
+        else if (stripos($sql, 'update') === 0 || stripos($sql, 'delete') === 0) {
+            $recordCount = '(affected)'; // We can't know without the result
+        }
+        
+        // Format the SQL with bindings for better readability
+        $formattedSql = self::formatSqlWithBindings($sql, $bindings);
+        
         if ($modelContext) {
             $modelName = $modelContext['model'];
-            $verb = $modelContext['verb'];
+            // Always use the SQL verb for consistency
+            $verb = strtoupper($sqlVerb);
             
-            // Determine number of affected records
-            $recordCount = 0;
+            // Ensure we have a valid trace ID for this log entry
+            $traceId = null;
             
-            // For SELECT queries, we can estimate the number of records from the result
-            if (stripos($sql, 'select') === 0) {
-                // We can't get the exact count without re-running the query
-                // This is just an estimation based on the query structure
-                $recordCount = stripos($sql, 'limit 1') !== false ? 1 : '(multiple)';
-            } 
-            // For other queries, we can often get the count from the query itself
-            else if (stripos($sql, 'insert') === 0) {
-                $recordCount = 1; // Single insert
-                if (stripos($sql, 'insert into') !== false && substr_count($sql, '(') > 1) {
-                    // Bulk insert - count the number of value groups
-                    $recordCount = substr_count($sql, '),(') + 1;
-                }
+            // Try to get from the correlation context if available
+            if (app()->has('Superlog\Utils\CorrelationContext')) {
+                $correlation = app()->make('Superlog\Utils\CorrelationContext');
+                $traceId = $correlation->getTraceId();
             }
-            else if (stripos($sql, 'update') === 0 || stripos($sql, 'delete') === 0) {
-                $recordCount = '(affected)'; // We can't know without the result
-            }
-            
-            // Format the SQL with bindings for better readability
-            $formattedSql = self::formatSqlWithBindings($sql, $bindings);
             
             // Log the model action with the SQL query
             Superlog::log(
@@ -130,6 +143,7 @@ class ModelQueryProcessor
                 [
                     'sql' => $formattedSql,
                     'bindings' => $bindings,
+                    'trace_id' => $traceId, // Pass trace ID explicitly
                 ],
                 [
                     'duration_ms' => $time,
@@ -143,6 +157,38 @@ class ModelQueryProcessor
         }
     }
     
+    /**
+     * Determine the SQL verb (SELECT, INSERT, UPDATE, DELETE, etc.) from the query.
+     *
+     * @param string $sql
+     * @return string
+     */
+    protected static function determineSqlVerb(string $sql): string
+    {
+        $sql = trim($sql);
+        
+        if (stripos($sql, 'select') === 0) {
+            return 'select';
+        } elseif (stripos($sql, 'insert') === 0) {
+            return 'insert';
+        } elseif (stripos($sql, 'update') === 0) {
+            return 'update';
+        } elseif (stripos($sql, 'delete') === 0) {
+            return 'delete';
+        } elseif (stripos($sql, 'alter') === 0) {
+            return 'alter';
+        } elseif (stripos($sql, 'create') === 0) {
+            return 'create';
+        } elseif (stripos($sql, 'drop') === 0) {
+            return 'drop';
+        } elseif (stripos($sql, 'truncate') === 0) {
+            return 'truncate';
+        } else {
+            // Default to 'query' if we can't determine the verb
+            return 'query';
+        }
+    }
+
     /**
      * Format SQL query with bindings for better readability.
      *

@@ -8,12 +8,13 @@ An enterprise-grade structured logging package for Laravel with built-in correla
 - **trace_id** (UUID v4): Spans the entire request/job lifecycle
 - **req_seq** (fixed-width 10 chars): Incremental ID per log line within a request
 - **span_id**: Per-section correlation (startup, middleware, db, http, shutdown)
+- **Non-HTTP context support**: Automatic trace ID generation for CLI commands, queue jobs, and webhooks
 
 ### 📊 Sections with Timing & Resources
 - **[STARTUP]**: Route, HTTP verb, IP, user/tenant, session ID, payload sizes, user-agent
 - **[MIDDLEWARE START/END]**: Auto-emitted with duration (ms) and response status
 - **[DATABASE]**: Aggregated query count, total query time, slowest query, slow query list
-- **[MODEL/$model_name/$verb]**: Eloquent model operations with SQL query, execution time, and record count
+- **[MODEL/$model_name/$VERB]**: Eloquent model operations with SQL query, execution time, and record count (VERB is SELECT, INSERT, UPDATE, DELETE, etc.)
 - **[HTTP-OUT]**: Guzzle taps with URL, method, status, duration, retry count, circuit state
 - **[CACHE]**: Hits, misses, sets, duration
 - **[SHUTDOWN]**: Request time, response status, peak memory, response bytes, PHP opcache status
@@ -108,6 +109,15 @@ See `config/superlog.php` for all available options:
 'enabled' => env('SUPERLOG_ENABLED', true),
 'auto_capture_requests' => env('SUPERLOG_AUTO_CAPTURE', true),
 'trace_id_header' => env('SUPERLOG_TRACE_ID_HEADER', 'X-Trace-Id'),
+```
+
+### Non-HTTP Context Logging
+```php
+'non_http_context' => [
+    'enabled' => env('SUPERLOG_NON_HTTP_CONTEXT_ENABLED', true),
+    'generate_trace_id' => true,
+    'prefix_trace_id' => true, // Adds 'cli_', 'job_', etc. prefix to trace IDs
+],
 ```
 
 ### Sampling
@@ -212,7 +222,7 @@ Superlog::logCache([
 
 // Model operations are automatically logged with the ModelQueryProcessor
 // Example output for User::find(1):
-// [MODEL/User/select] Model User select operation {"sql":"SELECT * FROM users WHERE id = 1 LIMIT 1"} {"duration_ms":5.2,"record_count":1}
+// [MODEL/User/SELECT] Model User SELECT operation {"sql":"SELECT * FROM users WHERE id = 1 LIMIT 1"} {"duration_ms":5.2,"record_count":1}
 ```
 
 ### Manual Correlation
@@ -274,8 +284,8 @@ The middleware automatically captures:
   "req_seq": "0000000002",
   "span_id": "c6d7e8f9-a0b1-2345-6789-0abcdef12345",
   "level": "DEBUG",
-  "section": "[MODEL/User/select]",
-  "message": "Model User select operation",
+  "section": "[MODEL/User/SELECT]",
+  "message": "Model User SELECT operation",
   "context": {
     "sql": "SELECT * FROM users WHERE id = 1 LIMIT 1",
     "bindings": [1]

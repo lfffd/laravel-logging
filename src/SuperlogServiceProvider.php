@@ -9,6 +9,7 @@ use Superlog\Middleware\RequestLifecycleMiddleware;
 use Superlog\Logger\StructuredLogger;
 use Superlog\Commands\SuperlogCheckCommand;
 use Superlog\Processors\ModelQueryProcessor;
+use Superlog\Utils\CorrelationContext;
 
 class SuperlogServiceProvider extends ServiceProvider
 {
@@ -90,6 +91,25 @@ class SuperlogServiceProvider extends ServiceProvider
                 'superlog.request-lifecycle',
                 RequestLifecycleMiddleware::class
             );
+            
+            // Register the non-HTTP context middleware
+            $this->app['router']->aliasMiddleware(
+                'superlog.non-http-context',
+                \Superlog\Middleware\NonHttpContextMiddleware::class
+            );
+            
+            // Add the non-HTTP context middleware to the global middleware stack
+            // This ensures it runs for all requests, including non-HTTP contexts
+            if ($this->app->runningInConsole()) {
+                $this->app->singleton(CorrelationContext::class, function ($app) {
+                    $correlation = new CorrelationContext();
+                    $correlation->setTraceId('cli_' . \Illuminate\Support\Str::uuid()->toString());
+                    $correlation->setMethod('CLI');
+                    $correlation->setPath(implode(' ', $_SERVER['argv'] ?? ['unknown']));
+                    $correlation->setClientIp('127.0.0.1');
+                    return $correlation;
+                });
+            }
         }
     }
     
