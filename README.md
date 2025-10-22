@@ -13,6 +13,7 @@ An enterprise-grade structured logging package for Laravel with built-in correla
 - **[STARTUP]**: Route, HTTP verb, IP, user/tenant, session ID, payload sizes, user-agent
 - **[MIDDLEWARE START/END]**: Auto-emitted with duration (ms) and response status
 - **[DATABASE]**: Aggregated query count, total query time, slowest query, slow query list
+- **[MODEL/$model_name/$verb]**: Eloquent model operations with SQL query, execution time, and record count
 - **[HTTP-OUT]**: Guzzle taps with URL, method, status, duration, retry count, circuit state
 - **[CACHE]**: Hits, misses, sets, duration
 - **[SHUTDOWN]**: Request time, response status, peak memory, response bytes, PHP opcache status
@@ -128,6 +129,16 @@ See `config/superlog.php` for all available options:
 ],
 ```
 
+### Model Query Logging
+```php
+'model_query_logging' => [
+    'enabled' => env('SUPERLOG_MODEL_QUERY_LOGGING', true),
+    'log_level' => env('SUPERLOG_MODEL_QUERY_LOG_LEVEL', 'debug'),
+    'include_bindings' => env('SUPERLOG_MODEL_QUERY_INCLUDE_BINDINGS', true),
+    'slow_query_threshold_ms' => env('SUPERLOG_MODEL_SLOW_QUERY_MS', 100),
+],
+```
+
 ### PII Redaction
 ```php
 'redaction' => [
@@ -198,6 +209,10 @@ Superlog::logCache([
     'sets' => 45,
     'duration_ms' => 12.3,
 ]);
+
+// Model operations are automatically logged with the ModelQueryProcessor
+// Example output for User::find(1):
+// [MODEL/User/select] Model User select operation {"sql":"SELECT * FROM users WHERE id = 1 LIMIT 1"} {"duration_ms":5.2,"record_count":1}
 ```
 
 ### Manual Correlation
@@ -225,7 +240,7 @@ The middleware automatically captures:
 
 ## Sample Output
 
-### JSON Format
+### JSON Format - Middleware Example
 ```json
 {
   "timestamp": "2025-10-20T09:13:46.343976Z",
@@ -240,6 +255,35 @@ The middleware automatically captures:
     "duration_ms": 11.75,
     "response_status": 200,
     "csrf_verified": true
+  },
+  "correlation": {
+    "trace_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+    "method": "GET",
+    "path": "/users",
+    "client_ip": "192.168.1.100",
+    "request_duration_ms": 245.32
+  }
+}
+```
+
+### JSON Format - Model Query Example
+```json
+{
+  "timestamp": "2025-10-20T09:13:47.123456Z",
+  "trace_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
+  "req_seq": "0000000002",
+  "span_id": "c6d7e8f9-a0b1-2345-6789-0abcdef12345",
+  "level": "DEBUG",
+  "section": "[MODEL/User/select]",
+  "message": "Model User select operation",
+  "context": {
+    "sql": "SELECT * FROM users WHERE id = 1 LIMIT 1",
+    "bindings": [1]
+  },
+  "metrics": {
+    "duration_ms": 5.2,
+    "record_count": 1,
+    "connection": "mysql"
   },
   "correlation": {
     "trace_id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",

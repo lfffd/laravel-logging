@@ -194,6 +194,19 @@ return [
         'enable_profiling' => env('SUPERLOG_PROFILING', false),
         'max_backtrace_depth' => 5,
     ],
+    
+    /*
+    |--------------------------------------------------------------------------
+    | Model Query Logging
+    |--------------------------------------------------------------------------
+    | Track and log Eloquent model operations with their SQL queries
+    */
+    'model_query_logging' => [
+        'enabled' => env('SUPERLOG_MODEL_QUERY_LOGGING', true),
+        'log_level' => env('SUPERLOG_MODEL_QUERY_LOG_LEVEL', 'debug'),
+        'include_bindings' => env('SUPERLOG_MODEL_QUERY_INCLUDE_BINDINGS', true),
+        'slow_query_threshold_ms' => env('SUPERLOG_MODEL_SLOW_QUERY_MS', 100),
+    ],
 
     /*
     |--------------------------------------------------------------------------

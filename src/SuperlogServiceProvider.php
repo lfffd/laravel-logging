@@ -8,6 +8,7 @@ use Superlog\Handlers\SuperlogHandler;
 use Superlog\Middleware\RequestLifecycleMiddleware;
 use Superlog\Logger\StructuredLogger;
 use Superlog\Commands\SuperlogCheckCommand;
+use Superlog\Processors\ModelQueryProcessor;
 
 class SuperlogServiceProvider extends ServiceProvider
 {
@@ -45,6 +46,7 @@ class SuperlogServiceProvider extends ServiceProvider
 
         $this->registerMonologHandler();
         $this->registerMiddleware();
+        $this->registerModelQueryProcessor();
     }
 
     /**
@@ -88,6 +90,16 @@ class SuperlogServiceProvider extends ServiceProvider
                 'superlog.request-lifecycle',
                 RequestLifecycleMiddleware::class
             );
+        }
+    }
+    
+    /**
+     * Register the model query processor.
+     */
+    protected function registerModelQueryProcessor(): void
+    {
+        if (config('superlog.model_query_logging.enabled', true)) {
+            ModelQueryProcessor::register();
         }
     }
 }

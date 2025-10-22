@@ -42,6 +42,7 @@ class SuperlogHandler extends AbstractProcessingHandler
             $logEntry = $context['_superlog_entry'];
         } else {
             // Fallback: construct from context (for non-Superlog logs)
+            // Build the entry directly without calling log() to avoid circular logging
             $section = $context['section'] ?? 'GENERAL';
             $metrics = $context['metrics'] ?? [];
             
@@ -49,13 +50,23 @@ class SuperlogHandler extends AbstractProcessingHandler
             $cleanContext = $context;
             unset($cleanContext['section'], $cleanContext['metrics'], $cleanContext['_superlog_entry']);
             
-            $logEntry = $this->logger->log(
-                $record->level->getName(),
-                $section,
-                $record->message,
-                $cleanContext,
-                $metrics
-            );
+            // Build log entry directly (mimics what StructuredLogger.log() does)
+            $logEntry = [
+                'level' => $record->level->getName(),
+                'section' => $section,
+                'message' => $record->message,
+                'context' => $cleanContext,
+                'metrics' => $metrics,
+                'timestamp' => $record->datetime->format('Y-m-d\TH:i:s.uP'),
+                'trace_id' => $context['trace_id'] ?? 'unknown',
+                'req_seq' => $context['req_seq'] ?? '0',
+                'span_id' => $context['span_id'] ?? 'unknown',
+            ];
+            
+            // Add correlation if available
+            if (isset($context['correlation'])) {
+                $logEntry['correlation'] = $context['correlation'];
+            }
         }
 
         // Format and output

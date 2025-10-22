@@ -132,6 +132,11 @@ class StructuredLogger
      */
     public function logStartup(array $requestData): array
     {
+        // First log entry: URL
+        $url = $requestData['full_url'] ?? '';
+        $this->log('info', 'STARTUP', 'URL: ' . $url, [], []);
+
+        // Second log entry: Full request details
         $metrics = [
             'method' => $requestData['method'],
             'path' => $requestData['path'],
