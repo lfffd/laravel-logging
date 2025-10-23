@@ -31,6 +31,9 @@ class RequestLifecycleMiddleware
 
         // If no trace ID is provided, generate a permanent one
         if (empty($traceId)) {
+            // Log blank line separator when generating new trace ID
+            $this->logSeparator();
+            
             $traceId = \Illuminate\Support\Str::uuid()->toString();
         }
 
@@ -41,9 +44,6 @@ class RequestLifecycleMiddleware
             $request->ip(),
             $traceId
         );
-
-        // Log blank line separator
-        $this->logSeparator();
 
         // Log startup
         $this->logStartup($request);
