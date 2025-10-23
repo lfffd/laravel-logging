@@ -83,7 +83,7 @@ class StructuredLogger
         $spanId = $this->correlation->getOrCreateSpanId($section);
 
         $logEntry = [
-            'timestamp' => now()->toIso8601String(),
+            'timestamp' => now()->format('Y-m-d\TH:i:s.uP'),
             'trace_id' => $this->correlation->getTraceId(),
             'req_seq' => $requestSeq,
             'span_id' => $spanId,
