@@ -4,8 +4,7 @@ namespace Superlog\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Http\Response;
-use Illuminate\Http\RedirectResponse;
+use Symfony\Component\HttpFoundation\Response;
 use Superlog\Logger\StructuredLogger;
 use Superlog\Utils\RequestTimer;
 
@@ -20,8 +19,12 @@ class RequestLifecycleMiddleware
 
     /**
      * Handle an incoming request
+     * 
+     * @param  \Illuminate\Http\Request  $request
+     * @param  \Closure  $next
+     * @return \Symfony\Component\HttpFoundation\Response
      */
-    public function handle(Request $request, Closure $next): Response|RedirectResponse
+    public function handle(Request $request, Closure $next): Response
     {
         $traceId = $request->header(config('superlog.trace_id_header', 'X-Trace-Id'))
             ?? request()->header('X-Trace-Id');
