@@ -55,10 +55,13 @@ class RequestLifecycleMiddleware
             $response = $next($request);
             
             // Register terminate callback to flush buffer when response is sent
-            $response->onAfterSend(function () use ($timer) {
-                $this->logShutdown($timer->elapsed());
-                $this->logger->flushBuffer();
-            });
+            // Only use onAfterSend if it exists (not all response types have it)
+            if (method_exists($response, 'onAfterSend')) {
+                $response->onAfterSend(function () use ($timer) {
+                    $this->logShutdown($timer->elapsed());
+                    $this->logger->flushBuffer();
+                });
+            }
             
             return $response;
         } catch (\Exception $e) {
@@ -66,9 +69,6 @@ class RequestLifecycleMiddleware
             $this->logShutdown($timer->elapsed());
             $this->logger->flushBuffer();
             throw $e;
-        } finally {
-            // Also call flushBuffer in finally to ensure it's called
-            // (in case response doesn't have onAfterSend or terminate not called)
         }
     }
 
