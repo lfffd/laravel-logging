@@ -9,6 +9,7 @@ class CorrelationContext
     // Static trace ID to ensure consistency across the application
     protected static ?string $staticTraceId = null;
     protected static ?string $tempTraceId = null;
+    protected static ?string $replacedTempTraceId = null; // Track the temp ID that was replaced
     
     protected string $method;
     protected string $path;
@@ -32,8 +33,9 @@ class CorrelationContext
         } else {
             self::$staticTraceId = $traceId;
             
-            // If we had a temporary ID before, log the transition
+            // If we had a temporary ID before, track it as replaced
             if (self::$tempTraceId) {
+                self::$replacedTempTraceId = self::$tempTraceId;
                 \Log::info("Session identification from " . self::$tempTraceId);
                 self::$tempTraceId = null;
             }
@@ -60,6 +62,14 @@ class CorrelationContext
         // Generate a new temporary trace ID
         self::$tempTraceId = 'tmp/' . Uuid::uuid4()->toString();
         return self::$tempTraceId;
+    }
+
+    /**
+     * Get the temporary trace ID that was replaced with a permanent one
+     */
+    public function getReplacedTempTraceId(): ?string
+    {
+        return self::$replacedTempTraceId;
     }
 
     /**

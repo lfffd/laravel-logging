@@ -227,4 +227,15 @@ return [
     | JSON or text output
     */
     'format' => env('SUPERLOG_FORMAT', 'json'), // 'json' or 'text'
+
+    /*
+    |--------------------------------------------------------------------------
+    | Memory Buffer Configuration
+    |--------------------------------------------------------------------------
+    | In-memory buffering before flushing logs to file
+    */
+    'memory_buffer' => [
+        'enabled' => env('SUPERLOG_MEMORY_BUFFER_ENABLED', true),
+        'size_mb' => env('SUPERLOG_BUFFER_SIZE_MB', 20),
+    ],
 ];

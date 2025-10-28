@@ -53,10 +53,22 @@ class RequestLifecycleMiddleware
 
         try {
             $response = $next($request);
+            
+            // Register terminate callback to flush buffer when response is sent
+            $response->onAfterSend(function () use ($timer) {
+                $this->logShutdown($timer->elapsed());
+                $this->logger->flushBuffer();
+            });
+            
             return $response;
+        } catch (\Exception $e) {
+            // On exception, flush buffer and log shutdown
+            $this->logShutdown($timer->elapsed());
+            $this->logger->flushBuffer();
+            throw $e;
         } finally {
-            // Log shutdown
-            $this->logShutdown($timer->elapsed(), $response ?? null);
+            // Also call flushBuffer in finally to ensure it's called
+            // (in case response doesn't have onAfterSend or terminate not called)
         }
     }
 
@@ -112,27 +124,17 @@ class RequestLifecycleMiddleware
     /**
      * Log request shutdown
      */
-    protected function logShutdown(float $durationMs, $response = null): void
+    protected function logShutdown(float $durationMs): void
     {
         $responseStatus = 0;
         $responseBytes = 0;
 
-        // Try to get response status and bytes from the response object
-        if ($response !== null) {
-            if (method_exists($response, 'getStatusCode')) {
-                $responseStatus = $response->getStatusCode();
-            }
-            if (method_exists($response, 'getContent')) {
-                $responseBytes = strlen($response->getContent());
-            }
-        }
-
-        // Fallback to http_response_code() and ob_get_length() if response object not available
-        if ($responseStatus === 0) {
-            $responseStatus = http_response_code() ?: 0;
-        }
-        if ($responseBytes === 0) {
-            $responseBytes = ob_get_level() > 0 ? ob_get_length() ?: 0 : 0;
+        // Use http_response_code() to get the response status
+        $responseStatus = http_response_code() ?: 0;
+        
+        // Try to get response bytes from output buffer
+        if (ob_get_level() > 0) {
+            $responseBytes = ob_get_length() ?: 0;
         }
 
         $shutdownData = [

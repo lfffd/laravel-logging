@@ -18,6 +18,10 @@ class StructuredLogger
     protected array $sections = [];
     protected int $sequenceCounter = 0;
     protected ?string $logChannel = null;
+    protected array $buffer = [];
+    protected int $bufferSize = 0; // in bytes
+    protected int $bufferSizeMb = 20; // default 20 MB
+    protected bool $bufferEnabled = true;
 
     public function __construct(array $config, ?string $logChannel = null)
     {
@@ -34,6 +38,10 @@ class StructuredLogger
         $this->redactor = new RedactionProcessor($config['redaction']);
         $this->payloadProcessor = new PayloadProcessor($config['payload_handling']);
         $this->logChannel = $logChannel ?? 'superlog';
+        
+        // Initialize buffer settings
+        $this->bufferEnabled = $config['memory_buffer']['enabled'] ?? true;
+        $this->bufferSizeMb = $config['memory_buffer']['size_mb'] ?? 20;
     }
 
     /**
@@ -41,15 +49,27 @@ class StructuredLogger
      */
     public function initializeRequest(string $method, string $path, string $ip, ?string $traceId = null): void
     {
-        // If a trace ID is provided and it's not a temporary ID, use it
-        if ($traceId && strpos($traceId, 'tmp/') !== 0) {
+        // Try to retrieve correlation ID from session first
+        $sessionTraceId = session('superlog_trace_id');
+        
+        if ($sessionTraceId && strpos($sessionTraceId, 'tmp/') !== 0) {
+            // Use the correlation ID from session if it's permanent
+            $this->correlation->setTraceId($sessionTraceId);
+        } else if ($traceId && strpos($traceId, 'tmp/') !== 0) {
+            // If a trace ID is provided and it's not a temporary ID, use it
             $this->correlation->setTraceId($traceId);
-        } else if (!$traceId) {
-            // If no trace ID is provided, generate a permanent one
+            session(['superlog_trace_id' => $traceId]);
+        } else if (!$traceId && !$sessionTraceId) {
+            // If no trace ID is provided and none in session, generate a permanent one
             $traceId = Uuid::uuid4()->toString();
             $this->correlation->setTraceId($traceId);
+            session(['superlog_trace_id' => $traceId]);
+        } else if ($traceId && strpos($traceId, 'tmp/') === 0) {
+            // It's a temporary ID, keep it until a permanent one is set
+            $this->correlation->setTraceId($traceId);
+            // Log temporary ID creation
+            $this->logTemporaryTraceIdCreation();
         }
-        // If it's a temporary ID, we keep it until a permanent one is set
 
         $this->correlation->setMethod($method);
         $this->correlation->setPath($path);
@@ -108,8 +128,13 @@ class StructuredLogger
         // Process payloads
         $logEntry = $this->payloadProcessor->process($logEntry);
 
-        // Write to Laravel's logging system
-        $this->writeToLog($level, $logEntry);
+        // Add to buffer or write directly
+        if ($this->bufferEnabled) {
+            $this->addToBuffer($level, $logEntry);
+        } else {
+            // Write to Laravel's logging system
+            $this->writeToLog($level, $logEntry);
+        }
 
         return $logEntry;
     }
@@ -306,6 +331,101 @@ class StructuredLogger
     public function getLogChannel(): ?string
     {
         return $this->logChannel;
+    }
+
+    /**
+     * Add a log entry to the memory buffer
+     */
+    protected function addToBuffer(string $level, array $logEntry): void
+    {
+        // Format the entry as JSON
+        $formattedEntry = $this->formatLogEntry($logEntry) . "\n";
+        
+        // Calculate the size in bytes
+        $entrySize = strlen($formattedEntry);
+        
+        // Add to buffer
+        $this->buffer[] = $formattedEntry;
+        $this->bufferSize += $entrySize;
+        
+        // Check if buffer size exceeds threshold
+        $bufferSizeBytes = $this->bufferSizeMb * 1024 * 1024;
+        if ($this->bufferSize >= $bufferSizeBytes) {
+            $this->flushBuffer();
+        }
+    }
+
+    /**
+     * Flush the buffer to the log file, replacing temporary trace IDs if necessary
+     */
+    public function flushBuffer(): void
+    {
+        if (empty($this->buffer)) {
+            return;
+        }
+
+        // Get the replaced temporary trace ID if any
+        $replacedTempTraceId = $this->correlation->getReplacedTempTraceId();
+        $permanentTraceId = $this->correlation->getTraceId();
+        
+        // If we replaced a temp ID, replace all occurrences in the buffer
+        if ($replacedTempTraceId && $permanentTraceId && strpos($permanentTraceId, 'tmp/') !== 0) {
+            foreach ($this->buffer as $key => $entry) {
+                $this->buffer[$key] = str_replace($replacedTempTraceId, $permanentTraceId, $entry);
+            }
+        }
+
+        // Write all buffered entries to the log
+        foreach ($this->buffer as $entry) {
+            // Parse the entry to get level and data for writeToLog
+            $this->writeBufferEntryToLog($entry);
+        }
+
+        // Clear the buffer
+        $this->buffer = [];
+        $this->bufferSize = 0;
+    }
+
+    /**
+     * Write a buffer entry to the log file
+     */
+    protected function writeBufferEntryToLog(string $entry): void
+    {
+        try {
+            // Get the log channel
+            $channel = $this->logChannel ?? 'superlog';
+            
+            // Write directly to the channel with info level
+            \Illuminate\Support\Facades\Log::channel($channel)->info(trim($entry));
+        } catch (\Exception $e) {
+            // Silently fail if logging fails to prevent breaking the application
+        }
+    }
+
+    /**
+     * Log when a temporary trace ID is created
+     */
+    protected function logTemporaryTraceIdCreation(): void
+    {
+        try {
+            $entry = [
+                'timestamp' => now()->format('Y-m-d\TH:i:s.uP'),
+                'trace_id' => $this->correlation->getTraceId(),
+                'level' => 'INFO',
+                'section' => '[GENERAL]',
+                'message' => 'Correlation ID not found in session, create a new correlation id',
+                'context' => [],
+                'correlation' => $this->correlation->toArray(),
+            ];
+            
+            if ($this->bufferEnabled) {
+                $this->addToBuffer('info', $entry);
+            } else {
+                $this->writeToLog('info', $entry);
+            }
+        } catch (\Exception $e) {
+            // Silently fail
+        }
     }
 
     /**

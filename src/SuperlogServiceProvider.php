@@ -70,6 +70,7 @@ class SuperlogServiceProvider extends ServiceProvider
         $this->registerMonologHandler();
         $this->registerMiddleware();
         $this->registerModelQueryProcessor();
+        $this->registerShutdownHandler();
     }
 
     /**
@@ -134,5 +135,22 @@ class SuperlogServiceProvider extends ServiceProvider
         if (config('superlog.model_query_logging.enabled', true)) {
             ModelQueryProcessor::register();
         }
+    }
+
+    /**
+     * Register shutdown handler to flush buffer.
+     */
+    protected function registerShutdownHandler(): void
+    {
+        register_shutdown_function(function () {
+            if ($this->app->has(StructuredLogger::class)) {
+                try {
+                    $logger = $this->app->make(StructuredLogger::class);
+                    $logger->flushBuffer();
+                } catch (\Exception $e) {
+                    // Silently fail to prevent breaking the application
+                }
+            }
+        });
     }
 }
